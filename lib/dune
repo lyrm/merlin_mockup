@@ -1,0 +1,4 @@
+(executable
+ (public_name merlin_mockup)
+ (name merlin_mockup)
+ (libraries unix))
