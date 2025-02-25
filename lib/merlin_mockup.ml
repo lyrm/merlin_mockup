@@ -77,7 +77,7 @@ module Mpipeline = struct
   (** [cancel] is called by the main domain *)
   let rec cancel (shared : shared) =
     let string_domain = Utils.string_domain () in
-    if debug then Format.printf "%sEnter CANCELn%!" string_domain;
+    if debug then Format.printf "%sEnter CANCEL\n%!" string_domain;
 
     match Atomic.get shared.message with
     | `Nothing as prev ->
@@ -88,7 +88,7 @@ module Mpipeline = struct
         else cancel shared
     | _ -> failwith "Cancel."
 
-  exception Bug
+  exception Bug of int
 
   (** [typer] *)
   let typer config shared =
@@ -115,7 +115,7 @@ module Mpipeline = struct
         (*  Where typing happens *)
         Shared.protect shared.result (fun () ->
             let res = ind in
-            if Random.int 10 == 0 then raise Bug;
+            if Random.int 10 == 0 then raise (Bug config);
             shared_value.(ind) <- res + shared_value.(ind);
             if ind = config then
               Shared.locking_set shared.partial_result
@@ -138,7 +138,9 @@ module Mpipeline = struct
     let rec loop () =
       if debug then Format.printf "%sLooping\n%!" string_domain;
 
-      if Atomic.get shared.closed = `True then Atomic.set shared.closed `Closed
+      if Atomic.get shared.closed = `True then (
+        if debug then Format.printf "%sClosed\n%!" string_domain;
+        Atomic.set shared.closed `Closed)
       else
         match Shared.get shared.curr_config with
         | None ->
@@ -146,42 +148,48 @@ module Mpipeline = struct
               Format.printf "%sWaiting for a config\n%!" string_domain;
             Shared.wait shared.curr_config;
             loop ()
-        | Some config -> (
+        | Some config ->
             Shared.set shared.curr_config None;
-            try
-              make config shared;
-              Shared.locking_set shared.result (Some (config, shared_value));
-              loop ()
-            with exn -> share_exn shared exn)
+            make config shared;
+            Shared.locking_set shared.result (Some (config, shared_value));
+            loop ()
     in
     if debug then Format.printf "%sBegin\n%!" string_domain;
-    Shared.protect shared.curr_config @@ fun () -> loop ()
+    try Shared.protect shared.curr_config @@ fun () -> loop ()
+    with exn ->
+      share_exn shared exn;
+      loop ()
 
   (** [get] *)
   let get shared config =
     let string_domain = Utils.string_domain () in
 
+    Format.printf "%sWait for lock to change config.\n%!" string_domain;
     Shared.locking_set shared.curr_config (Some config);
+    Format.printf "%sConfig changed.\n%!" string_domain;
 
     let rec loop () =
       match Shared.get shared.partial_result with
       | None -> (
           match Atomic.get shared.closed with
           | `True | `Closed -> assert false
-          | `Exn exn ->
+          | `Exn (Bug buggy_config) ->
+              if debug then
+                Format.printf "%sWitness the exception of config %d.\n%!"
+                  string_domain buggy_config;
               Atomic.set shared.closed `False;
-              raise exn
+              if buggy_config == config then None else loop ()
           | _ ->
               if debug then
                 Format.printf "%sWaiting for a result\n%!" string_domain;
-
               Shared.wait shared.partial_result;
               loop ())
       | Some pipeline ->
           if debug then Format.printf "%sSome result \n%!" string_domain;
           Shared.set shared.partial_result None;
-          pipeline
+          Some pipeline
     in
+
     Shared.protect shared.partial_result @@ fun () -> loop ()
 end
 
@@ -199,11 +207,14 @@ let analysis (shared : Mpipeline.shared)
 
   if config_typer <> config then failwith "impossible ?";
   (* Main domain signals it wants the lock  *)
-  if Atomic.compare_and_set shared.message `Nothing `Waiting then
+  if Atomic.compare_and_set shared.message `Nothing `Waiting then (
+    if debug then Format.printf "%sWaiting to get the lock.\n%!" string_domain;
+
     Shared.protect shared.result (fun () ->
         Atomic.set shared.message `Nothing;
-        run_analysis partial_pipeline config)
-  else failwith "Should no happen"
+        run_analysis partial_pipeline config))
+  else failwith "Should no happen";
+  if debug then Format.printf "%sAnalysis finished.\n%!" string_domain
 
 (** [random_config] *)
 let random_config () = Random.int 5
@@ -227,7 +238,7 @@ let run shared count_max =
       *)
       let r = Mpipeline.get shared config in
       (* Utils.print_arr_int ~prefix:"Partial result :" (snd r); *)
-      analysis shared r config;
+      (match r with Some r -> analysis shared r config | None -> ());
       do_one_request config (count + 1)
   in
   do_one_request (-1) 0
