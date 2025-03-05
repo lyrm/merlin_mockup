@@ -18,6 +18,8 @@ let create a =
 let wait a = Condition.wait a.cond a.mutex
 let signal a = Condition.signal a.cond
 let protect a = Mutex.protect a.mutex
+let lock a = Mutex.lock a.mutex
+let unlock a = Mutex.unlock a.mutex
 
 (* 
  Can I do something that guarantees that the function are called under lock ?

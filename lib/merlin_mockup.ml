@@ -94,8 +94,12 @@ module Mpipeline = struct
   let typer config shared =
     let exception Break in
     let string_domain = Utils.string_domain () in
+    let first = ref true in
     try
       for ind = 0 to len - 1 do
+        if debug && ind mod 10 = 0 then
+          Format.printf "%sTyping step %d in %d\n%!" string_domain ind len;
+
         (* Active waiting seems ok here as the whole purpose of the typer is to 
         type as fast as possible. Thus its waiting time should be as short as possible. *)
         (match Atomic.get shared.message with
@@ -113,15 +117,22 @@ module Mpipeline = struct
             raise Break
         | _ -> ());
         (*  Where typing happens *)
-        Shared.protect shared.result (fun () ->
-            let res = ind in
-            if Random.int 10 == 0 then raise (Bug config);
-            shared_value.(ind) <- res + shared_value.(ind);
-            if ind = config then
-              Shared.locking_set shared.partial_result
-                (Some (config, shared_value));
-            (* Simulating some additional work*)
-            Utils.stupid_work () |> ignore)
+        try
+          Shared.protect shared.result (fun () ->
+              let res = ind in
+              if Random.int 10 == 0 then raise (Bug config);
+              shared_value.(ind) <- res + shared_value.(ind);
+              if ind >= config && !first then (
+                (* [first] enables to put >= instead of = which is going to be 
+              useful with the cash (typing can begin after the line we want to 
+              stop if the beginning is already in cash)*)
+                first := false;
+                Shared.locking_set shared.partial_result
+                  (Some (config, shared_value)));
+              (* Simulating some additional work*)
+              Utils.stupid_work () |> ignore)
+        with exn ->
+          if ind >= config then (* TODO : log the exception *) () else raise exn
       done
     with Break -> ()
 
@@ -129,7 +140,9 @@ module Mpipeline = struct
   let make config shared =
     let string_domain = Utils.string_domain () in
     if debug then Format.printf "%sBegin config %d\n%!" string_domain config;
-    typer config shared
+    typer config shared;
+    if debug then
+      Format.printf "%sFinish typing config %d\n%!" string_domain config
 
   (** [domain_typer] *)
   let domain_typer shared () =
@@ -150,47 +163,76 @@ module Mpipeline = struct
             loop ()
         | Some config ->
             Shared.set shared.curr_config None;
-            make config shared;
-            Shared.locking_set shared.result (Some (config, shared_value));
+            (try
+               make config shared;
+               Shared.locking_set shared.result (Some (config, shared_value))
+             with exn -> share_exn shared exn);
             loop ()
     in
     if debug then Format.printf "%sBegin\n%!" string_domain;
-    try Shared.protect shared.curr_config @@ fun () -> loop ()
-    with exn ->
-      share_exn shared exn;
-      loop ()
+    Shared.protect shared.curr_config loop
+
+  (** [check_message] *)
+  (* let check_message_main shared config continue =
+    let string_domain = Utils.string_domain () in
+
+    match Atomic.get shared.closed with
+    | `True | `Closed -> assert false
+    | `Exn (Bug buggy_config) ->
+        if debug then
+          Format.printf "%sWitness the exception of config %d.\n%!"
+            string_domain buggy_config;
+        Atomic.set shared.closed `False;
+        if buggy_config == config then None else failwith "Should not happen"
+    | _ -> continue () *)
 
   (** [get] *)
   let get shared config =
     let string_domain = Utils.string_domain () in
+    if debug then
+      Format.printf "%sWait for lock to change config.\n%!" string_domain;
 
-    Format.printf "%sWait for lock to change config.\n%!" string_domain;
     Shared.locking_set shared.curr_config (Some config);
-    Format.printf "%sConfig changed.\n%!" string_domain;
+
+    if debug then Format.printf "%sConfig changed.\n%!" string_domain;
 
     let rec loop () =
-      match Shared.get shared.partial_result with
-      | None -> (
-          match Atomic.get shared.closed with
-          | `True | `Closed -> assert false
-          | `Exn (Bug buggy_config) ->
-              if debug then
-                Format.printf "%sWitness the exception of config %d.\n%!"
-                  string_domain buggy_config;
-              Atomic.set shared.closed `False;
-              if buggy_config == config then None else loop ()
-          | _ ->
-              if debug then
-                Format.printf "%sWaiting for a result\n%!" string_domain;
-              Shared.wait shared.partial_result;
-              loop ())
-      | Some pipeline ->
-          if debug then Format.printf "%sSome result \n%!" string_domain;
-          Shared.set shared.partial_result None;
-          Some pipeline
-    in
+      let critical_section () =
+        match Shared.get shared.partial_result with
+        | None -> (
+            (* TODO : put this in a function and make sure it is called enough (to avoid missing a message) *)
+            match Atomic.get shared.closed with
+            | `True | `Closed -> assert false
+            | `Exn (Bug buggy_config) ->
+                if debug then
+                  Format.printf "%sWitness the exception of config %d.\n%!"
+                    string_domain buggy_config;
+                Atomic.set shared.closed `False;
+                if buggy_config == config then `Result None else `Retry
+            | _ ->
+                if debug then
+                  Format.printf "%sWaiting for a result\n%!" string_domain;
+                Shared.wait shared.partial_result;
+                `Retry)
+        | Some ((_rconfig, _) as pipeline) ->
+            if debug then
+              Format.printf "%sSome partial result \n%!" string_domain;
 
-    Shared.protect shared.partial_result @@ fun () -> loop ()
+            (* if _rconfig != config then (
+              Format.printf
+                "%sMismatching config %d / curr : %d (curr_config = %s)\n%!"
+                string_domain rconfig config
+                (Option.fold ~none:"None" ~some:string_of_int
+                   (Shared.get shared.curr_config));
+              failwith "problem"); *)
+            Shared.set shared.partial_result None;
+            `Result (Some pipeline)
+      in
+      match Shared.protect shared.partial_result critical_section with
+      | `Retry -> loop ()
+      | `Result r -> r
+    in
+    loop ()
 end
 
 (** [run_analysis]*)
@@ -251,7 +293,7 @@ let main () =
 
   let domain_typer = Domain.spawn @@ Mpipeline.domain_typer shared in
 
-  let _ = run shared 10 in
+  let _ = run shared 20 in
 
   if debug then Format.printf "%sRun finished\n%!" (Utils.string_domain ());
 
@@ -264,44 +306,15 @@ let () = main ()
 
 (* Bug issueLSP695 *)
 
-(** {[
-      let domain_typer shared () =
-        let rec loop () =
-          if Atomic.get shared.closed = `True then
-            (* Atomic.set shared.closed `Closed *)
-            ()
-          else
-            match Shared.get shared.curr_config with
-            | None ->
-                Shared.wait shared.curr_config;
-                loop ()
-            | Some config -> (
-                Shared.set shared.curr_config None;
-                try
-                  make config shared;
-                  Shared.locking_set shared.result (Some (config, shared_value));
-                  loop ()
-                with exn -> share_exn shared exn)
-        in
-        Shared.protect shared.curr_config @@ fun () -> loop ()
+(** {
+  Is there an issue depending on when an exception is raised by the typer domain ?
+  - before a partial result has been returned : No, the main domain is located 
+  before the write on `curr_config` and the wait on `partial_result`.  
+  - after a partial result has been returned : the main domain can be anywhere. 
+  In particular, it could be already processing a new request / config. However, 
+  it only becomes aware of the issue when it looks at the `message`. But then 
+  the typer is waiting for ACK to continue. So it should be has soon as possible. 
+  -> It is not an issue if the reading of `message` is always able to manage the 
+    possible caught exception and if it happens often enough. 
 
-      let get shared config =
-        Shared.locking_set shared.curr_config (Some config);
-
-        let rec loop () =
-          match Shared.get shared.partial_result with
-          | None -> (
-              match Atomic.get shared.closed with
-              | `True | `Closed -> assert false
-              | `Exn exn ->
-                  (* Atomic.set shared.closed `True; *)
-                  raise exn
-              | _ ->
-                  Shared.wait shared.partial_result;
-                  loop ())
-          | Some pipeline ->
-              Shared.set shared.partial_result None;
-              pipeline
-        in
-        Shared.protect shared.partial_result @@ fun () -> loop ()
-    ]} *)
+*)
