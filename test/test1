@@ -1,0 +1,50 @@
+let alpha = 
+  1 + 1 * 3 
+
+let beta = alpha + 1 / 1 - 2 
+
+let gamma = alpha + beta
+
+let delta = gamma * 3 
+
+let epsilon = alpha + 2 
+
+let zeta = delta - beta 
+
+let eta = epsilon * 2 
+
+let theta = eta + gamma 
+
+let iota = zeta / 2 
+
+let kappa = theta + alpha 
+
+let lambda = delta + 5 - kappa * 12 
+
+let mu = iota + kappa 
+
+let nu = lambda * beta 
+
+let xi = nu - epsilon 
+
+let omicron = mu * 3 
+
+let pi = omicron + theta 
+
+let rho = pi / alpha 
+
+let sigma = delta + rho 
+
+let tau = sigma * 2 
+
+let upsilon = tau - epsilon 
+
+let phi = upsilon / beta 
+
+let chi = phi + zeta 
+
+let psi = chi * gamma 
+
+let omega = psi - iota 
+
+let final_value = omega + epsilon 

@@ -1,0 +1,49 @@
+let apple = 5 * 2 + 3 
+
+let banana = 10 + 4 - 2 
+
+let cherry = (apple * 3) + (banana / 2) 
+
+let dragonfruit = cherry - (banana * 2) 
+
+let elderberry = (apple + cherry) * 2 
+
+let fig = (elderberry / 2) - 3 
+
+let grape = (fig + 7) * (banana - 2) 
+
+let hazelnut = (grape / 3) + (fig * 2) 
+
+let iceberg = (hazelnut + 5) * 2 
+
+let jackfruit = iceberg - (grape / 2) 
+
+let kiwi = (jackfruit + apple) / 3 
+
+let lime = (kiwi * 4) - banana 
+
+let mango = (lime + 8) / 2 
+
+let nectarine = (mango * 3) - apple 
+
+let orange = (nectarine + fig) / 2 
+
+let papaya = (orange * 4) - grape 
+
+let quince = (papaya + lime) / 3 
+
+let raspberry = (quince * 2) + jackfruit 
+
+let strawberry = (raspberry - banana) * 3 
+
+let tangerine = (strawberry / 2) + 7 
+
+let ugli = (tangerine * 3) - 5 
+
+let vanilla = (ugli / 2) + mango 
+
+let watermelon = (vanilla * 3) - kiwi 
+
+let xigua = (watermelon + fig) / 2 
+
+let yellowfruit = (xigua * 3) - elderberry 

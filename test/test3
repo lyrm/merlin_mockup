@@ -1,0 +1,52 @@
+let rocket = 
+    12 * 
+    3 
+    + 5 
+
+let spaceship = 20- 6 + 4 
+
+let asteroid = (rocket * 2 ) + (spaceship / 2) 
+
+let galaxy = asteroid - (spaceship * 3) 
+
+let nebula = (rocket + asteroid) * 2 
+
+let blackhole = (nebula / 2) - 7 
+
+let comet = (blackhole + 10) * (spaceship - 3) 
+
+let meteor = (comet / 4) + (blackhole * 2) 
+
+let planet = (meteor + 6) * 3 
+
+let satellite = planet - (comet / 2) 
+
+let orbit = (satellite + rocket) / 3 
+
+let star = (orbit * 5) - spaceship 
+
+let universe = (star + 9) / 2 
+
+let eclipse = (universe * 3) - rocket 
+
+let constellation = (eclipse + blackhole) / 2 
+
+let pulsar = (constellation * 4) - asteroid 
+
+let quasar = (pulsar + star) / 3 
+
+let asteroid_belt = (quasar * 2) + satellite 
+
+let nova = (asteroid_belt - spaceship) * 3 
+
+let wormhole = (nova / 2) + 8 
+
+let supernova = (wormhole * 3) - 6 
+
+let darkmatter = (supernova / 2) + universe 
+
+let cosmic_ray = (darkmatter * 3) - orbit 
+
+let antimatter = (cosmic_ray + blackhole) / 2 
+
+let spacetime = (antimatter * 3) - nebula 
