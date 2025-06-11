@@ -8,13 +8,25 @@ open Moconfig
 type result = (string * int) list ref
 
 (* In mtyper.ml, type_structure, type_implementation and run returns different types*)
-type partial = TS of result | TI of result | Run of result
+type partial = TI of result | Run of result
 type _ Effect.t += Partial : partial -> unit t
 
 let res : result = ref []
 
-let type_structure msg shared_result env config defs =
-  let rec loop env count ldefs =
+type _ res =
+  | Partial :
+      int
+      -> (result * (string * int) list * (string * Motool_parser.expr) list) res
+  | Complete : result res
+
+let type_structure msg shared_result env ~until defs =
+  let rec loop : type r.
+      r res ->
+      (string * int) list ->
+      int ->
+      (string * Motool_parser.expr) list ->
+      r =
+   fun until env count ldefs ->
     if debug_lvl > 1 then
       Format.printf "%sTyping defs %d / %d\n%!" (Utils.domain_name ()) count
         (List.length defs);
@@ -40,34 +52,32 @@ let type_structure msg shared_result env config defs =
 
     Shared.lock shared_result;
     match ldefs with
-    | def :: rest ->
+    | def :: rest -> (
         let v, e = Motool_parser.eval env def in
         res := (v, e) :: !res;
 
         Shared.unlock shared_result;
-        (* TODO count >= i *)
-        (match config.completion with
-        | Part i when count = i ->
-            if debug_lvl > 0 then
-              Format.printf "%sPartial result is ready\n%!"
-                (Utils.domain_name ());
-            perform (Partial (TS res))
-        | _ -> ());
-
-        Utils.stupid_work () |> ignore;
-        loop ((v, e) :: env) (count + 1) rest
-    | [] ->
+        match until with
+        | Partial i when i = count -> (res, env, rest)
+        | _ ->
+            Utils.stupid_work () |> ignore;
+            loop until ((v, e) :: env) (count + 1) rest)
+    | [] -> (
         Shared.unlock shared_result;
-        res
+        match until with Partial _ -> (res, env, []) | Complete -> res)
   in
-  loop env 0 defs
+  loop until env 0 defs
 
 let type_implementation msg shared_result defs config =
-  match type_structure msg shared_result [] config defs with
-  | res -> res
-  | effect Partial (TS r), k ->
-      perform (Partial (TI r));
-      continue k ()
+  match config.completion with
+  | All -> type_structure ~until:Complete msg shared_result [] defs
+  | Part i ->
+      let partial, env, rest =
+        type_structure ~until:(Partial i) msg shared_result [] defs
+      in
+      perform (Partial (TI partial));
+      let _suffix = type_structure ~until:Complete msg shared_result env rest in
+      res
 
 let run msg shared_result defs config =
   (* Reset "typer" state *)
