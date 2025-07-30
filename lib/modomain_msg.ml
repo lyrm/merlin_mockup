@@ -7,9 +7,9 @@
 + From Typer to Main :
   - caught an exception 
 *)
-open Moshared
+(* open Moshared *)
 
-exception Cancel
+(* exception Cancel
 exception Closing
 
 module Domain_msg = struct
@@ -31,4 +31,4 @@ module Domain_msg = struct
         Shared.signal signal_on
       done
     else failwith "send_msg: should not happen."
-end
+end *)
