@@ -12,19 +12,16 @@ let run_analysis partial_pipeline _config =
   partial_pipeline.Mopipeline.evals := save
 
 (** [analysis]*)
-let analysis (shared : Mopipeline.shared) (partial_pipeline : Mopipeline.t)
-    config =
+let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
+    =
   (* Main domain signals it wants the lock  *)
-  if Atomic.compare_and_set shared.msg.from_main `Empty `Waiting then
-    Shared.protect shared.result (fun () ->
-        (* The write on mess_main needed 
-            to happen in the lock to ensure the main domain got it, before 
-            releasing the typer domain of its active wait *)
-        Atomic.set shared.msg.from_main `Empty;
-        run_analysis partial_pipeline config)
-  else
-    (* This can happen when the typer domain found an exception *)
-    failwith "To debug."
+  Atomic.set shared.waiting true;
+
+  (* Main domain waits for the typer domain to finish its analysis *)
+  Shared.protect shared.msg (fun () ->
+      Atomic.set shared.waiting false;
+      run_analysis partial_pipeline config;
+      Shared.signal shared.msg)
 
 (** [run] = New_merlin.run ou New_commands.run*)
 let run shared requests =
@@ -34,14 +31,13 @@ let run shared requests =
       if debug_lvl > 0 then
         Format.printf "%sRequest nb %d\n%!" (Utils.domain_name ()) count;
 
-      (if Moconfig.prev_is_cancelled !prev config then Mopipeline.cancel shared
-       else
-         let r = Mopipeline.get shared config in
+      Mopipeline.cancel_typer shared;
+      let r = Mopipeline.get shared config in
 
-         if debug_lvl > 0 then
-           Format.printf "%sRequest nb %d - Beginning analysis\n%!"
-             (Utils.domain_name ()) count;
-         match r with Some r -> analysis shared r config | None -> ());
+      if debug_lvl > 0 then
+        Format.printf "%sRequest nb %d - Beginning analysis\n%!"
+          (Utils.domain_name ()) count;
+      (match r with Some r -> analysis shared r config | None -> ());
 
       prev := Some config)
     requests
@@ -54,7 +50,7 @@ let main () =
 
   let domain_typer = Domain.spawn @@ Mopipeline.domain_typer shared in
 
-  let _ = run shared Moconfig.test_cancel in
+  let _ = run shared Moconfig.test_cache in
 
   if debug_lvl > 0 then
     Format.printf "%sRun finished\n%!" (Utils.domain_name ());
