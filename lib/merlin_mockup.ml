@@ -20,7 +20,8 @@ let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
   (* Main domain waits for the typer domain to finish its analysis *)
   Shared.protect shared.msg (fun () ->
       Atomic.set shared.waiting false;
-      run_analysis partial_pipeline config)
+      run_analysis partial_pipeline config;
+      Shared.signal shared.msg)
 
 (** [run] = New_merlin.run ou New_commands.run*)
 let run shared requests =

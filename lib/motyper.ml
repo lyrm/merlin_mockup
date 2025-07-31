@@ -10,7 +10,7 @@ type result = (string * int) list ref
 
 exception Cancel_exn
 exception Closing_exn
-exception Exception_after_partial
+exception Exception_after_partial of exn
 
 type msg =
   | Msg of [ `Closing | `Cancel | `Exn of exn ]
@@ -70,16 +70,17 @@ let type_structure waiting shared_result env ~until defs =
             let v, e =
               try Motool_parser.eval env def
               with exn ->
-                if debug_lvl > 2 then
-                  Format.printf "%sRaising an exception in typer \n%!"
-                    (Utils.domain_name ());
+                (if debug_lvl > 2 then
+                   let exc = Printexc.to_string exn in
+                   Format.printf "%sRaising an exception in typer : %s \n%!"
+                     (Utils.domain_name ()) exc);
                 Shared.unlock shared_result;
                 raise exn
             in
             res := (v, e) :: !res;
             Shared.unlock shared_result;
             match until with
-            | Partial i when i = count -> (res, env, rest)
+            | Partial i when i = count -> (res, (v, e) :: env, rest)
             | _ ->
                 Utils.stupid_work () |> ignore;
                 loop until ((v, e) :: env) (count + 1) rest)
@@ -119,7 +120,7 @@ let type_implementation msg shared_result defs config =
       perform (Partial (TI partial));
       let _suffix =
         try type_structure ~until:Complete msg shared_result env rest
-        with _ -> raise Exception_after_partial
+        with exn -> raise (Exception_after_partial exn)
       in
       res
 
