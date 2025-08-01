@@ -83,13 +83,9 @@ let domain_typer shared () =
           loop ()
       | _ -> failwith "unexpected message in domain_typer"
     with
-    | Closing_exn ->
+    | Cancel_or_closing ->
         if debug_lvl > 0 then
-          Format.printf "%sCaught Closing_exn.\n%!" (Utils.domain_name ());
-        ()
-    | Cancel_exn ->
-        if debug_lvl > 0 then
-          Format.printf "%sCaught Cancel_exn.\n%!" (Utils.domain_name ());
+          Format.printf "%sCaught Cancel_or_closing.\n%!" (Utils.domain_name ());
         loop ()
     | Exception_after_partial exn ->
         if debug_lvl > 0 then (

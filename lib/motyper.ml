@@ -8,8 +8,7 @@ open Moconfig
 
 type result = (string * int) list ref
 
-exception Cancel_exn
-exception Closing_exn
+exception Cancel_or_closing
 exception Exception_after_partial of exn
 
 type msg =
@@ -58,12 +57,18 @@ let type_structure waiting shared_result env ~until defs =
         if debug_lvl > 0 then
           Format.printf "%sClosing in typer \n%!" (Utils.domain_name ());
         Shared.unlock shared_result;
-        raise Closing_exn
+        raise Cancel_or_closing
     | Some (Msg `Cancel) ->
         if debug_lvl > 0 then
           Format.printf "%sCancelling in typer \n%!" (Utils.domain_name ());
         Shared.unlock shared_result;
-        raise Cancel_exn
+        raise Cancel_or_closing
+    (* | Some (Msg `Waiting) ->
+        if debug_lvl > 0 then
+          Format.printf "%sWaiting in typer \n%!" (Utils.domain_name ());
+        Shared.unlock shared_result;
+        Domain.cpu_relax ();
+        loop until env count ldefs *)
     | None -> (
         match ldefs with
         | def :: rest -> (
@@ -119,8 +124,9 @@ let type_implementation msg shared_result defs config =
       in
       perform (Partial (TI partial));
       let _suffix =
-        try type_structure ~until:Complete msg shared_result env rest
-        with exn -> raise (Exception_after_partial exn)
+        try type_structure ~until:Complete msg shared_result env rest with
+        | Cancel_or_closing -> raise Cancel_or_closing
+        | exn -> raise (Exception_after_partial exn)
       in
       res
 

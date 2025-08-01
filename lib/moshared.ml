@@ -13,8 +13,6 @@ module Shared = struct
 
     Mutex.lock t.mutex;
 
-    assert (t.value = None);
-
     if debug_lvl > 2 then
       Format.printf "%sBlocking_put : in CS \n%!" (Utils.domain_name ());
 
