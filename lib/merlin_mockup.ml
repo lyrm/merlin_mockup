@@ -11,7 +11,8 @@ let run_analysis partial_pipeline _config =
   partial_pipeline.Mopipeline.evals := save
 
 (** [analysis] *)
-let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config =
+let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
+    =
   (* Main domain signals it wants the lock  *)
   Atomic.set shared.waiting true;
 
@@ -46,15 +47,23 @@ let main () =
   if debug_lvl > 0 then
     Format.printf "%sSpawning typer\n%!" (Utils.domain_name ());
 
-  let domain_typer = Domain.spawn @@ Mopipeline.domain_typer shared in
+  let module Scheduler = Parallel_scheduler_work_stealing in 
 
-  let _ = run shared Moconfig.test_cache in
+  (* TODO : Could the wsdeque be used for future improvement ? *)
+  let scheduler = Scheduler.create ~domains:2 () in
 
-  if debug_lvl > 0 then
-    Format.printf "%sRun finished\n%!" (Utils.domain_name ());
+  let _, _ = 
+  Scheduler.schedule scheduler ~f:(fun par ->
+      Parallel.fork_join2 par
+        (fun _par -> Mopipeline.domain_typer shared ())
+        (fun _par ->
+          let _ = run shared Moconfig.test_cache in
+          if debug_lvl > 0 then
+          Format.printf "%sRun finished\n%!" (Utils.domain_name ());
 
-  Mopipeline.close_typer shared;
-  Domain.join domain_typer;
+        Mopipeline.close_typer shared) ) in 
+  
+  Scheduler.stop scheduler;
 
   if print_last then (
     Format.printf "Last result:\n%!";

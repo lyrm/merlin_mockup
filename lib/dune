@@ -1,4 +1,4 @@
 (executable
  (public_name merlin_mockup)
  (name merlin_mockup)
- (libraries unix parallel parallel.scheduler.stack))
+ (libraries unix parallel parallel.scheduler.work_stealing))

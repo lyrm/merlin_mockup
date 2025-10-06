@@ -1,5 +1,5 @@
 open Debug
-open Effect.Deep
+open Stdlib.Effect.Deep
 open Moconfig
 open Motyper
 
@@ -35,8 +35,7 @@ let cancel_typer shared =
     Format.printf "%sOut of cancel_typer\n%!" (Utils.domain_name ())
 
 (** [create_shared] *)
-let create_shared () =
-  { waiting = Atomic.make false; msg = Moshared.create () }
+let create_shared () = { waiting = Atomic.make false; msg = Moshared.create () }
 
 let process config shared =
   let raw_def = Motool_parser.buffer_to_words config.Moconfig.source in

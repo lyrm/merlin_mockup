@@ -1,7 +1,8 @@
 open Debug
-open Effect
-open Effect.Deep
 open Moconfig
+module Effect = Stdlib.Effect
+open Effect
+open Stdlib.Effect.Deep
 
 type result = (string * int) list ref
 
