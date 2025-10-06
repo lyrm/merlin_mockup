@@ -1,7 +1,6 @@
 open Debug
-open Moshared
 
-(** [run_analysis]*)
+(** [run_analysis] *)
 let run_analysis partial_pipeline _config =
   let evals = partial_pipeline.Mopipeline.evals in
   let save = !evals in
@@ -11,19 +10,18 @@ let run_analysis partial_pipeline _config =
     Motool_parser.print evals);
   partial_pipeline.Mopipeline.evals := save
 
-(** [analysis]*)
-let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
-    =
+(** [analysis] *)
+let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config =
   (* Main domain signals it wants the lock  *)
   Atomic.set shared.waiting true;
 
   (* Main domain waits for the typer domain to finish its analysis *)
-  Shared.protect shared.msg (fun () ->
+  Moshared.protect shared.msg (fun () ->
       Atomic.set shared.waiting false;
       run_analysis partial_pipeline config;
-      Shared.signal shared.msg)
+      Moshared.signal shared.msg)
 
-(** [run] = New_merlin.run ou New_commands.run*)
+(** [run] = New_merlin.run ou New_commands.run *)
 let run shared requests =
   let prev = ref None in
   List.iteri

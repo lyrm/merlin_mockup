@@ -1,7 +1,4 @@
 open Debug
-
-(* open Modomain_msg *)
-open Moshared
 open Effect
 open Effect.Deep
 open Moconfig
@@ -16,7 +13,7 @@ type msg =
   | Config of config
   | Partial of result
 
-type shared = { waiting : bool Atomic.t; msg : msg Shared.t }
+type shared = { waiting : bool Atomic.t; msg : msg Moshared.t }
 
 (* In mtyper.ml, type_structure, type_implementation and run returns different types*)
 type partial = TI of result | Run of result
@@ -46,27 +43,27 @@ let type_structure waiting shared_result env ~until defs =
       if debug_lvl > 0 then
         Format.printf "%sHave read waiting \n%!" (Utils.domain_name ());
 
-      Shared.protect shared_result (fun () ->
-          Shared.signal shared_result;
-          Shared.wait shared_result));
+      Moshared.protect shared_result (fun () ->
+          Moshared.signal shared_result;
+          Moshared.wait shared_result));
 
     (* Should use protect here *)
-    Shared.lock shared_result;
-    match Shared.unsafe_get shared_result with
+    Moshared.lock shared_result;
+    match Moshared.unsafe_get shared_result with
     | Some (Msg `Closing) ->
         if debug_lvl > 0 then
           Format.printf "%sClosing in typer \n%!" (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         raise Cancel_or_closing
     | Some (Msg `Cancel) ->
         if debug_lvl > 0 then
           Format.printf "%sCancelling in typer \n%!" (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         raise Cancel_or_closing
     (* | Some (Msg `Waiting) ->
         if debug_lvl > 0 then
           Format.printf "%sWaiting in typer \n%!" (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         Domain.cpu_relax ();
         loop until env count ldefs *)
     | None -> (
@@ -79,11 +76,11 @@ let type_structure waiting shared_result env ~until defs =
                    let exc = Printexc.to_string exn in
                    Format.printf "%sRaising an exception in typer : %s \n%!"
                      (Utils.domain_name ()) exc);
-                Shared.unlock shared_result;
+                Moshared.unlock shared_result;
                 raise exn
             in
             res := (v, e) :: !res;
-            Shared.unlock shared_result;
+            Moshared.unlock shared_result;
             match until with
             | Partial i when i = count -> (res, (v, e) :: env, rest)
             | _ ->
@@ -92,25 +89,25 @@ let type_structure waiting shared_result env ~until defs =
         | [] -> (
             if debug_lvl > 0 then
               Format.printf "%sCompution finished \n%!" (Utils.domain_name ());
-            Shared.unlock shared_result;
+            Moshared.unlock shared_result;
             match until with Partial _ -> (res, env, []) | Complete -> res))
     | Some (Config _) ->
         if debug_lvl > 2 then
           Format.printf "%sUnexpected message in type_structure : config\n%!"
             (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         failwith "Unexpected message in type_structure : config"
     | Some (Partial _) ->
         if debug_lvl > 2 then
           Format.printf "%sUnexpected message in type_structure : partial]\n%!"
             (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         failwith "Unexpected message in type_structure : partial"
     | Some (Msg (`Exn _)) ->
         if debug_lvl > 2 then
           Format.printf "%sUnexpected message in type_structure : exn\n%!"
             (Utils.domain_name ());
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         failwith "Unexpected message in type_structure : exn"
   in
   loop until env 0 defs
@@ -133,8 +130,19 @@ let type_implementation msg shared_result defs config =
 let run msg shared_result defs config =
   (* Reset "typer" state *)
   res := [];
-  match type_implementation msg shared_result defs config with
-  | res -> res
-  | effect Partial (TI r), k ->
-      perform (Partial (Run r));
-      continue k ()
+  match_with
+    (type_implementation msg shared_result defs)
+    config
+    {
+      retc = (fun res -> res);
+      exnc = raise;
+      effc =
+        (fun (type a) (eff : a Effect.t) ->
+          match eff with
+          | Partial (TI r) ->
+              Some
+                (fun (k : (a, _) Effect.Deep.continuation) ->
+                  perform (Partial (Run r));
+                  continue k ())
+          | _ -> None);
+    }
