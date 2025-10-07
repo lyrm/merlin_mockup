@@ -23,7 +23,9 @@ let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
       Moshared.signal shared.msg)
 
 (** [run] = New_merlin.run ou New_commands.run *)
-let run shared requests =
+let run : Motyper.shared @ contended -> Moconfig.config list -> unit @ portable
+    =
+ fun shared requests ->
   let prev = ref None in
   List.iteri
     (fun count config ->
@@ -43,26 +45,23 @@ let run shared requests =
 
 (** [main] = Ocaml_merlin_server.main *)
 let main () =
-  let shared = Mopipeline.create_shared () in
+  let shared @ contended = Mopipeline.create_shared () in
   if debug_lvl > 0 then
     Format.printf "%sSpawning typer\n%!" (Utils.domain_name ());
 
-  let module Scheduler = Parallel_scheduler_work_stealing in 
-
+  let module Scheduler = Parallel_scheduler_work_stealing in
   (* TODO : Could the wsdeque be used for future improvement ? *)
   let scheduler = Scheduler.create ~domains:2 () in
 
-  let _, _ = 
-  Scheduler.schedule scheduler ~f:(fun par ->
-      Parallel.fork_join2 par
-        (fun _par -> Mopipeline.domain_typer shared ())
-        (fun _par ->
-          let _ = run shared Moconfig.test_cache in
-          if debug_lvl > 0 then
-          Format.printf "%sRun finished\n%!" (Utils.domain_name ());
+  let _, _ =
+    Scheduler.schedule scheduler ~f:(fun par ->
+        Parallel.fork_join2 par
+          (fun _par -> Mopipeline.domain_typer shared ())
+          (fun _par ->
+            let _ = run shared Moconfig.test_cache in
+            Mopipeline.close_typer shared))
+  in
 
-        Mopipeline.close_typer shared) ) in 
-  
   Scheduler.stop scheduler;
 
   if print_last then (

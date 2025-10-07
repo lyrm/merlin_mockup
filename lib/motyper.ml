@@ -49,67 +49,35 @@ let type_structure waiting shared_result env ~until defs =
           Moshared.wait shared_result));
 
     (* Should use protect here *)
-    Moshared.lock shared_result;
-    match Moshared.unsafe_get shared_result with
-    | Some (Msg `Closing) ->
-        if debug_lvl > 0 then
-          Format.printf "%sClosing in typer \n%!" (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        raise Cancel_or_closing
-    | Some (Msg `Cancel) ->
-        if debug_lvl > 0 then
-          Format.printf "%sCancelling in typer \n%!" (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        raise Cancel_or_closing
-    (* | Some (Msg `Waiting) ->
-        if debug_lvl > 0 then
-          Format.printf "%sWaiting in typer \n%!" (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        Domain.cpu_relax ();
-        loop until env count ldefs *)
-    | None -> (
-        match ldefs with
-        | def :: rest -> (
-            let v, e =
-              try Motool_parser.eval env def
-              with exn ->
-                (if debug_lvl > 2 then
-                   let exc = Printexc.to_string exn in
-                   Format.printf "%sRaising an exception in typer : %s \n%!"
-                     (Utils.domain_name ()) exc);
-                Moshared.unlock shared_result;
-                raise exn
-            in
-            res := (v, e) :: !res;
-            Moshared.unlock shared_result;
-            match until with
-            | Partial i when i = count -> (res, (v, e) :: env, rest)
-            | _ ->
-                Utils.stupid_work () |> ignore;
-                loop until ((v, e) :: env) (count + 1) rest)
-        | [] -> (
-            if debug_lvl > 0 then
-              Format.printf "%sCompution finished \n%!" (Utils.domain_name ());
-            Moshared.unlock shared_result;
-            match until with Partial _ -> (res, env, []) | Complete -> res))
-    | Some (Config _) ->
-        if debug_lvl > 2 then
-          Format.printf "%sUnexpected message in type_structure : config\n%!"
-            (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        failwith "Unexpected message in type_structure : config"
-    | Some (Partial _) ->
-        if debug_lvl > 2 then
-          Format.printf "%sUnexpected message in type_structure : partial]\n%!"
-            (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        failwith "Unexpected message in type_structure : partial"
-    | Some (Msg (`Exn _)) ->
-        if debug_lvl > 2 then
-          Format.printf "%sUnexpected message in type_structure : exn\n%!"
-            (Utils.domain_name ());
-        Moshared.unlock shared_result;
-        failwith "Unexpected message in type_structure : exn"
+    match
+      Moshared.protect shared_result (fun () ->
+          match Moshared.unsafe_get shared_result with
+          | Some (Msg `Closing) -> raise Cancel_or_closing
+          | Some (Msg `Cancel) -> raise Cancel_or_closing
+          | Some (Config _) ->
+              failwith "Unexpected message in type_structure : config"
+          | Some (Partial _) ->
+              failwith "Unexpected message in type_structure : partial"
+          | Some (Msg (`Exn _)) ->
+              failwith "Unexpected message in type_structure : exn"
+          | None -> (
+              match ldefs with
+              | def :: rest ->
+                  let v, e =
+                    try Motool_parser.eval env def with exn -> raise exn
+                  in
+                  res := (v, e) :: !res;
+                  `Res (v, e, rest)
+              | [] -> `Empty))
+    with
+    | `Res (v, e, rest) -> (
+        match until with
+        | Partial i when i = count -> (res, (v, e) :: env, rest)
+        | _ ->
+            Utils.stupid_work () |> ignore;
+            loop until ((v, e) :: env) (count + 1) rest)
+    | `Empty -> (
+        match until with Partial _ -> (res, env, []) | Complete -> res)
   in
   loop until env 0 defs
 

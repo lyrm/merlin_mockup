@@ -11,28 +11,13 @@ type t = {
 }
 
 (** [closing]: called by the main domain *)
-let close_typer shared =
-  if debug_lvl > 1 then
-    Format.printf "%sIn close_typer\n%!" (Utils.domain_name ());
-  Moshared.put_ack shared.msg (Msg `Closing);
-  if debug_lvl > 1 then
-    Format.printf "%sOut of close_typer\n%!" (Utils.domain_name ())
+let close_typer shared = Moshared.put_ack shared.msg (Msg `Closing)
 
 (** [share_exn]: called by the typer domain *)
-let share_exn shared exn =
-  if debug_lvl > 1 then
-    Format.printf "%sIn shared_exn\n%!" (Utils.domain_name ());
-  Moshared.put_ack shared.msg (Msg (`Exn exn));
-  if debug_lvl > 1 then
-    Format.printf "%sOut of shared_exn\n%!" (Utils.domain_name ())
+let share_exn shared exn = Moshared.put_ack shared.msg (Msg (`Exn exn))
 
 (** [cancel]: called by the main domain *)
-let cancel_typer shared =
-  if debug_lvl > 1 then
-    Format.printf "%sIn cancel_typer\n%!" (Utils.domain_name ());
-  Moshared.put_ack shared.msg (Msg `Cancel);
-  if debug_lvl > 1 then
-    Format.printf "%sOut of cancel_typer\n%!" (Utils.domain_name ())
+let cancel_typer shared = Moshared.put_ack shared.msg (Msg `Cancel)
 
 (** [create_shared] *)
 let create_shared () = { waiting = Atomic.make false; msg = Moshared.create () }
