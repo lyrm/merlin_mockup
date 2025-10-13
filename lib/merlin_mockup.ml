@@ -29,15 +29,9 @@ let run : Motyper.shared @ contended -> Moconfig.config list -> unit @ portable
   let prev = ref None in
   List.iteri
     (fun count config ->
-      if debug_lvl > 0 then
-        Format.printf "%sRequest nb %d\n%!" (Utils.domain_name ()) count;
-
       Mopipeline.cancel_typer shared;
       let r = Mopipeline.get shared config in
 
-      if debug_lvl > 0 then
-        Format.printf "%sRequest nb %d - Beginning analysis\n%!"
-          (Utils.domain_name ()) count;
       (match r with Some r -> analysis shared r config | None -> ());
 
       prev := Some config)
@@ -45,9 +39,7 @@ let run : Motyper.shared @ contended -> Moconfig.config list -> unit @ portable
 
 (** [main] = Ocaml_merlin_server.main *)
 let main () =
-  let shared @ contended = Mopipeline.create_shared () in
-  if debug_lvl > 0 then
-    Format.printf "%sSpawning typer\n%!" (Utils.domain_name ());
+  let shared = Mopipeline.create_shared () in
 
   let module Scheduler = Parallel_scheduler_work_stealing in
   (* TODO : Could the wsdeque be used for future improvement ? *)

@@ -1,4 +1,3 @@
-open Debug
 open Moconfig
 module Effect = Stdlib.Effect
 open Effect
@@ -36,17 +35,10 @@ let type_structure waiting shared_result env ~until defs =
       (string * Motool_parser.expr) list ->
       r =
    fun until env count ldefs ->
-    if debug_lvl > 1 then
-      Format.printf "%sTyping defs %d / %d\n%!" (Utils.domain_name ()) count
-        (List.length defs);
-
-    if Atomic.get waiting then (
-      if debug_lvl > 0 then
-        Format.printf "%sHave read waiting \n%!" (Utils.domain_name ());
-
+    if Atomic.get waiting then
       Moshared.protect shared_result (fun () ->
           Moshared.signal shared_result;
-          Moshared.wait shared_result));
+          Moshared.wait shared_result);
 
     (* Should use protect here *)
     match
