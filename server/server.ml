@@ -1,7 +1,7 @@
 module Unix = UnixLabels
 
 let log fmt =
-  let domain_name = if Domain.is_main_domain () then "main" else "typer" in
+  let domain_name = if Domain.is_main_domain () then "main" else "work" in
   Format.eprintf ("Server [%s] : " ^^ fmt ^^ "\n%!") domain_name
 
 let setup_server ~socket_fname =
@@ -17,37 +17,44 @@ let setup_server ~socket_fname =
 let read_request socket =
   let buf = Bytes.create 10 in
   let read = Unix.recv socket ~buf ~pos:0 ~len:(Bytes.length buf) ~mode:[] in
-  Bytes.sub buf 0 read |> String.of_bytes
+  let req = Bytes.sub buf 0 read |> String.of_bytes in
+  log "IO read request %S" req;
+  req
 
 let respond socket resp =
   Unix.send socket ~buf:(Bytes.of_string resp) ~pos:0 ~len:(String.length resp)
     ~mode:[]
   |> ignore;
-  log "respond %S" resp;
+  log "IO: write response %S" resp;
   Unix.close socket
 
 module Shared = struct
-  type 'a t = { requests : 'a Queue.t; mutex : Mutex.t; cond : Condition.t }
+  type 'a t = { mutex : Mutex.t; cond : Condition.t; mutable value : 'a option }
 
   let create () =
-    {
-      requests = Queue.create ();
-      mutex = Mutex.create ();
-      cond = Condition.create ();
-    }
+    { mutex = Mutex.create (); cond = Condition.create (); value = None }
 
-  let push v s =
-    Mutex.protect s.mutex (fun () ->
-        let was_empty = Queue.is_empty s.requests in
-        Queue.add v s.requests;
-        if was_empty then Condition.broadcast s.cond)
+  let put t v =
+    Mutex.protect t.mutex @@ fun () ->
+    t.value <- Some v;
+    log "put";
+    Condition.signal t.cond;
+    Condition.wait t.cond t.mutex
 
-  let take s =
-    Mutex.protect s.mutex (fun () ->
-        while Queue.is_empty s.requests do
-          Condition.wait s.cond s.mutex
-        done;
-        Queue.take s.requests)
+  let take t =
+    Mutex.protect t.mutex @@ fun () ->
+    let rec loop () =
+      match t.value with
+      | None ->
+          Condition.wait t.cond t.mutex;
+          loop ()
+      | Some v -> v
+    in
+    let value = loop () in
+    log "take";
+    t.value <- None;
+    Condition.signal t.cond;
+    value
 end
 
 let listen shared =
@@ -57,15 +64,15 @@ let listen shared =
     match read_request client |> int_of_string_opt with
     | None -> log "ignoring malformed request"
     | Some req ->
-        log "request: %i" req;
-        Shared.push (client, req) shared
+        Shared.put shared req;
+        let response = Shared.take shared in
+        respond client (string_of_int response)
   done
 
 let work shared =
   while true do
-    let socket, request = Shared.take shared in
-    let response = string_of_int (request * 10) in
-    respond socket response
+    let request = Shared.take shared in
+    Shared.put shared (request * 10)
   done
 
 (* Clean up the socket once the server is shutdown. *)
@@ -76,7 +83,11 @@ let () =
 let () = if Sys.unix then Sys.set_signal Sys.sigpipe Sys.Signal_ignore
 
 let () =
-  let requests = Shared.create () in
-  let worker = Domain.spawn (fun () -> work requests) in
-  let _ = listen requests in
-  Domain.join worker
+  let shared = Shared.create () in
+  let worker = Domain.spawn (fun () -> work shared) in
+  try
+    let _ = listen shared in
+    Domain.join worker
+  with Unix.Unix_error (EINTR, _, _) ->
+    (* Graceful termination. *)
+    log "Interrupted"
