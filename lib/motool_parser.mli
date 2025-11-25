@@ -12,3 +12,4 @@ val parse_def : token list -> string * expr
 val eval : (string * int) list -> string * expr -> string * int
 val rename : (string * int) list ref -> unit
 val print : (string * int) list ref -> unit
+val to_string : (string * int) list ref -> string

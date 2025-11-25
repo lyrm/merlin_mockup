@@ -168,3 +168,8 @@ let print l =
   Format.printf "@[<hov>%a@]@."
     Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
     !l
+
+let to_string l =
+  Format.asprintf "@[<hov>%a@]@."
+    Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
+    !l

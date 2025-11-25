@@ -24,23 +24,16 @@ let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
       Shared.signal shared.msg)
 
 (** [run] = New_merlin.run ou New_commands.run*)
-let run shared requests =
-  let prev = ref None in
-  List.iteri
-    (fun count config ->
-      if debug_lvl > 0 then
-        Format.printf "%sRequest nb %d\n%!" (Utils.domain_name ()) count;
-
-      Mopipeline.cancel_typer shared;
-      let r = Mopipeline.get shared config in
-
-      if debug_lvl > 0 then
-        Format.printf "%sRequest nb %d - Beginning analysis\n%!"
-          (Utils.domain_name ()) count;
-      (match r with Some r -> analysis shared r config | None -> ());
-
-      prev := Some config)
-    requests
+let run =
+  let req_count = ref 0 in
+  fun shared config ->
+    Mopipeline.cancel_typer shared;
+    incr req_count;
+    let result = Mopipeline.get shared config in
+    if debug_lvl > 0 then
+      Format.printf "%sRequest nb %d - Beginning analysis\n%!"
+        (Utils.domain_name ()) !req_count;
+    Option.iter (fun r -> analysis shared r config) result
 
 (** [main] = Ocaml_merlin_server.main *)
 let main () =
@@ -50,11 +43,10 @@ let main () =
 
   let domain_typer = Domain.spawn @@ Mopipeline.domain_typer shared in
 
-  let _ = run shared Moconfig.test_cache in
-
-  if debug_lvl > 0 then
-    Format.printf "%sRun finished\n%!" (Utils.domain_name ());
-
+  Server.listen ~socket_fname:Sys.argv.(1) ~handle:(fun req ->
+      run shared req;
+      let res = !Motyper.res |> List.rev in
+      Motool_parser.to_string (ref res));
   Mopipeline.close_typer shared;
   Domain.join domain_typer;
 
@@ -63,6 +55,10 @@ let main () =
     let res = !Motyper.res |> List.rev in
     Motool_parser.print (ref res));
   ()
+
+(* Clean up the socket once the server is shutdown. *)
+let () =
+  Sys.set_signal Sys.sigint (Signal_handle (fun _ -> Unix.unlink Sys.argv.(1)))
 
 let () = main ()
 
