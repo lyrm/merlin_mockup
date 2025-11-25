@@ -5,5 +5,5 @@ let domain_name () =
   if Domain.is_main_domain () then "[Main]" else "      [Typer]"
 
 let log fmt =
-  Format.eprintf "%s" (domain_name ());
+  Format.eprintf "%s " (domain_name ());
   Format.eprintf (fmt ^^ "\n%!")

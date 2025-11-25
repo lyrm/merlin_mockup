@@ -6,16 +6,16 @@ let run_analysis partial_pipeline _config =
   let evals = partial_pipeline.Mopipeline.evals in
   let save = !evals in
   Motool_parser.rename evals;
-  if print_partial then (
-    Format.printf "Partial result:\n%!";
-    Motool_parser.print evals);
+  if print_partial then begin
+    Utils.log "Partial result:";
+    Motool_parser.print evals
+  end;
   partial_pipeline.Mopipeline.evals := save
 
 (** [analysis]*)
-let analysis (shared : Motyper.shared) (partial_pipeline : Mopipeline.t) config
-    =
+let analysis shared partial_pipeline config =
   (* Main domain signals it wants the lock  *)
-  Atomic.set shared.waiting true;
+  Atomic.set shared.Motyper.waiting true;
 
   (* Main domain waits for the typer domain to finish its analysis *)
   Shared.protect shared.msg (fun () ->
@@ -31,18 +31,15 @@ let run =
     incr req_count;
     let result = Mopipeline.get shared config in
     if debug_lvl > 0 then
-      Format.printf "%sRequest nb %d - Beginning analysis\n%!"
-        (Utils.domain_name ()) !req_count;
+      Utils.log "Request nb %i - Beginning analysis" !req_count;
     Option.iter (fun r -> analysis shared r config) result
 
 (** [main] = Ocaml_merlin_server.main *)
 let main () =
   let shared = Mopipeline.create_shared () in
-  if debug_lvl > 0 then
-    Format.printf "%sSpawning typer\n%!" (Utils.domain_name ());
+  if debug_lvl > 0 then Utils.log "Spawning typer";
 
-  let domain_typer = Domain.spawn @@ Mopipeline.domain_typer shared in
-
+  let domain_typer = Domain.spawn (fun () -> Mopipeline.domain_typer shared) in
   Server.listen ~socket_fname:Sys.argv.(1) ~handle:(fun req ->
       run shared req;
       let res = !Motyper.res |> List.rev in
@@ -50,11 +47,10 @@ let main () =
   Mopipeline.close_typer shared;
   Domain.join domain_typer;
 
-  if print_last then (
-    Format.printf "Last result:\n%!";
-    let res = !Motyper.res |> List.rev in
-    Motool_parser.print (ref res));
-  ()
+  if print_last then begin
+    Utils.log "Last result :";
+    Motool_parser.print (ref (List.rev !Motyper.res))
+  end
 
 (* Clean up the socket once the server is shutdown. *)
 let () =
