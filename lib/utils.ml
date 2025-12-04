@@ -4,6 +4,8 @@ let stupid_work () =
 let domain_name () =
   if Domain.is_main_domain () then "[Main]" else "      [Typer]"
 
-let log fmt =
-  Format.eprintf "%s " (domain_name ());
-  Format.eprintf (fmt ^^ "\n%!")
+let log lvl (fmt : ('a, Format.formatter, unit, unit) format4) : 'a =
+  if Debug.debug_lvl > lvl then (
+    Format.eprintf "%s "(domain_name ());
+    Format.eprintf (fmt ^^ "\n%!"))
+  else Format.ifprintf Format.std_formatter fmt
