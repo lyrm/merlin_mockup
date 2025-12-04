@@ -49,7 +49,6 @@ let make config shared = process config shared
 let domain_typer shared =
   let rec loop () =
     Utils.log 1 "Looping";
-
     try
       match Moshared.take shared.msg with
       | Msg `Closing ->
@@ -61,7 +60,6 @@ let domain_typer shared =
           loop ()
       | Config config ->
           Utils.log 0 "Beginning new config";
-
           let pipeline = make config shared in
           (match config.completion with
           | All -> Moshared.put_ack shared.msg (Partial pipeline)
@@ -77,10 +75,8 @@ let domain_typer shared =
         Utils.log 0 "Caught an exception after partial result : %s." exn;
         loop ()
     | exn ->
-        share_exn shared exn;
-        loop ()
+        share_exn shared exn; loop () 
   in
-
   loop ()
 
 let get shared config =
