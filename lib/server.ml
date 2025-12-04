@@ -1,6 +1,6 @@
 module Unix = UnixLabels
 
-let log fmt = Utils.log ("Server : " ^^ fmt)
+let log fmt = Utils.log 0 ("Server : " ^^ fmt)
 
 let setup_server ~socket_fname =
   let socket =

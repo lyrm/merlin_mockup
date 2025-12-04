@@ -1,7 +1,3 @@
-open Debug
-
-(* open Modomain_msg *)
-open Moshared
 open Effect
 open Effect.Deep
 open Moconfig
@@ -16,7 +12,7 @@ type msg =
   | Config of config
   | Partial of result
 
-type shared = { waiting : bool Atomic.t; msg : msg Shared.t }
+type shared = { waiting : bool Atomic.t; msg : msg Moshared.t }
 
 (* In mtyper.ml, type_structure, type_implementation and run returns different types*)
 type partial = TI of result | Run of result
@@ -38,73 +34,53 @@ let type_structure waiting shared_result env ~until defs =
       (string * Motool_parser.expr) list ->
       r =
    fun until env count ldefs ->
-    if debug_lvl > 1 then
-      Utils.log "Typing defs %d / %d" count (List.length defs);
+    Utils.log 1 "Typing defs %d / %d" count (List.length defs);
 
     if Atomic.get waiting then begin
-      if debug_lvl > 0 then Utils.log "Have read waiting";
+      Utils.log 0 "Typer domain: detected main domain is waiting";
 
-      Shared.protect shared_result (fun () ->
-          Shared.signal shared_result;
-          Shared.wait shared_result)
+      Moshared.protect shared_result (fun () ->
+          Moshared.signal shared_result;
+          Moshared.wait shared_result)
     end;
 
     (* Should use protect here *)
-    Shared.lock shared_result;
-    match Shared.unsafe_get shared_result with
+    Moshared.lock shared_result;
+    match Moshared.unsafe_get shared_result with
     | Some (Msg `Closing) ->
-        if debug_lvl > 0 then Utils.log "Closing in typer";
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         raise Cancel_or_closing
     | Some (Msg `Cancel) ->
-        if debug_lvl > 0 then Utils.log "Cancelling in typer";
-        Shared.unlock shared_result;
+        Moshared.unlock shared_result;
         raise Cancel_or_closing
-    (* | Some (Msg `Waiting) ->
-        if debug_lvl > 0 then
-          Utils.log "%sWaiting in typer " ;
-        Shared.unlock shared_result;
-        Domain.cpu_relax ();
-        loop until env count ldefs *)
+    | Some (Config _) ->
+        Moshared.unlock shared_result;
+        failwith "Unexpected message in type_structure : config"
+    | Some (Partial _) ->
+        Moshared.unlock shared_result;
+        failwith "Unexpected message in type_structure : partial"
+    | Some (Msg (`Exn _)) ->
+        Moshared.unlock shared_result;
+        failwith "Unexpected message in type_structure : exn"
     | None -> (
         match ldefs with
         | def :: rest -> (
             let v, e =
               try Motool_parser.eval env def
               with exn ->
-                if debug_lvl > 2 then begin
-                  let exn = Printexc.to_string exn in
-                  Utils.log "Raising an exception in typer : %s" exn
-                end;
-                Shared.unlock shared_result;
+                Moshared.unlock shared_result;
                 raise exn
             in
             res := (v, e) :: !res;
-            Shared.unlock shared_result;
+            Moshared.unlock shared_result;
             match until with
             | Partial i when i = count -> (res, (v, e) :: env, rest)
             | _ ->
                 Utils.stupid_work () |> ignore;
                 loop until ((v, e) :: env) (count + 1) rest)
         | [] -> (
-            if debug_lvl > 0 then Utils.log "Compution finished";
-            Shared.unlock shared_result;
+            Moshared.unlock shared_result;
             match until with Partial _ -> (res, env, []) | Complete -> res))
-    | Some (Config _) ->
-        if debug_lvl > 2 then
-          Utils.log "Unexpected message in type_structure : config";
-        Shared.unlock shared_result;
-        failwith "Unexpected message in type_structure : config"
-    | Some (Partial _) ->
-        if debug_lvl > 2 then
-          Utils.log "Unexpected message in type_structure : partial";
-        Shared.unlock shared_result;
-        failwith "Unexpected message in type_structure : partial"
-    | Some (Msg (`Exn _)) ->
-        if debug_lvl > 2 then
-          Utils.log "Unexpected message in type_structure : exn";
-        Shared.unlock shared_result;
-        failwith "Unexpected message in type_structure : exn"
   in
   loop until env 0 defs
 
