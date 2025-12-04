@@ -165,6 +165,11 @@ let pp_def out (x, y) = Format.fprintf out "Value of \"%s\" is %d.\n" x y
       |> List.fold_left (fun env (name, def) -> eval env (name, def) :: env) []
     ]} *)
 let print l =
-  Format.printf "@[<hov>%a@]@."
+  Utils.log "@[<hov>%a@]@."
+    Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
+    !l
+
+let to_string l =
+  Format.asprintf "@[<hov>%a@]@."
     Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
     !l
