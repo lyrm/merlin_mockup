@@ -35,13 +35,24 @@ let process config shared =
   let defs =
     List.map Motool_parser.lexer raw_def |> List.map Motool_parser.parse_def
   in
-  match Motyper.run shared.waiting shared.msg defs config with
-  | evals -> evals
-  | effect Motyper.Partial (Run evals), k ->
-      Utils.log 1 "Sharing partial result";
-      Moshared.put_ack shared.msg (Partial evals);
-      Utils.log 1 "Shared!";
-      continue k ()
+  match_with
+    (Motyper.run shared.waiting shared.msg defs)
+    config
+    {
+      retc = (fun evals -> evals);
+      exnc = raise;
+      effc =
+        (fun (type a) (eff : a Effect.t) ->
+          match eff with
+          | Motyper.Partial (Run evals) ->
+              Some
+                (fun (k : (a, _) Effect.Deep.continuation) ->
+                  Utils.log 1 "Sharing partial result";
+                  Moshared.put_ack shared.msg (Partial evals);
+                  Utils.log 1 "Shared partial result!";
+                  continue k ())
+          | _ -> None);
+    }
 
 let make config shared = process config shared
 
@@ -75,7 +86,8 @@ let domain_typer shared =
         Utils.log 0 "Caught an exception after partial result : %s." exn;
         loop ()
     | exn ->
-        share_exn shared exn; loop () 
+        share_exn shared exn;
+        loop ()
   in
   loop ()
 

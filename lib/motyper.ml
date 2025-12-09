@@ -102,8 +102,19 @@ let type_implementation msg shared_result defs config =
 let run msg shared_result defs config =
   (* Reset "typer" state *)
   res := [];
-  match type_implementation msg shared_result defs config with
-  | res -> res
-  | effect Partial (TI r), k ->
-      perform (Partial (Run r));
-      continue k ()
+  match_with
+    (type_implementation msg shared_result defs)
+    config
+    {
+      retc = (fun res -> res);
+      exnc = raise;
+      effc =
+        (fun (type a) (eff : a Effect.t) ->
+          match eff with
+          | Partial (TI r) ->
+              Some
+                (fun (k : (a, _) Effect.Deep.continuation) ->
+                  perform (Partial (Run r));
+                  continue k ())
+          | _ -> None);
+    }
