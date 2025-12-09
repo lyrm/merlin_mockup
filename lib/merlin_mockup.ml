@@ -1,6 +1,6 @@
 open Debug
 
-(** [run_analysis]*)
+(** [run_analysis] *)
 let run_analysis partial_pipeline _config =
   let evals = partial_pipeline.Mopipeline.evals in
   let save = !evals in
@@ -11,7 +11,7 @@ let run_analysis partial_pipeline _config =
   end;
   partial_pipeline.Mopipeline.evals := save
 
-(** [analysis]*)
+(** [analysis] *)
 let analysis shared partial_pipeline config =
   (* Main domain signals it wants the lock  *)
   Atomic.set shared.Motyper.waiting true;
@@ -22,7 +22,7 @@ let analysis shared partial_pipeline config =
       run_analysis partial_pipeline config;
       Moshared.signal shared.msg)
 
-(** [run] = New_merlin.run ou New_commands.run*)
+(** [run] = New_merlin.run ou New_commands.run *)
 let run =
   let req_count = ref 0 in
   fun shared config ->
