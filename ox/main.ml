@@ -2,8 +2,10 @@ open! Await
 
 let domain_typer shared =
   match Shared.recv_clear shared with
-  | Config cfg -> Shared.send_and_wait shared (Msg "test")
-  | Msg _ -> failwith "unexpected msg"
+  | Config cfg ->
+      Shared.send_and_wait shared
+        (Config { completion = All; source = "some file" })
+  | _ -> failwith "unexpected msg"
 
 let main () =
   let shared = Shared.create () in
