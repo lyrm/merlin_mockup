@@ -6,9 +6,12 @@ let create () =
 let put_ack t a =
   Mutex.protect t.mutex @@ fun () ->
   assert (t.value = None);
-  t.value <- Some a;
+  let new_v = Some a in
+  t.value <- new_v;
   Condition.signal t.cond;
-  Condition.wait t.cond t.mutex
+  while t.value == new_v do
+    Condition.wait t.cond t.mutex
+  done
 
 let take t =
   Mutex.protect t.mutex @@ fun () ->

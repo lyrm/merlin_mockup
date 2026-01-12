@@ -6,6 +6,6 @@ let domain_name () =
 
 let log lvl (fmt : ('a, Format.formatter, unit, unit) format4) : 'a =
   if Debug.debug_lvl > lvl then (
-    Format.eprintf "%s "(domain_name ());
+    Format.eprintf "%s " (domain_name ());
     Format.eprintf (fmt ^^ "\n%!"))
   else Format.ifprintf Format.std_formatter fmt

@@ -75,7 +75,8 @@ let domain_typer shared =
         Utils.log 0 "Caught an exception after partial result : %s." exn;
         loop ()
     | exn ->
-        share_exn shared exn; loop () 
+        share_exn shared exn;
+        loop ()
   in
   loop ()
 
