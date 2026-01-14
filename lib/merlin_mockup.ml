@@ -1,7 +1,5 @@
 open Debug
 
-
-
 (** [run] = New_merlin.run ou New_commands.run *)
 let run =
   let req_count = ref 0 in

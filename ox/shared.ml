@@ -89,3 +89,14 @@ let protected_apply (P t) (f : 'b on_pipeline) =
             #(result, key)))
   in
   result.aliased
+
+let protected_update (P t)
+    (f : msg option -> Mopipeline.t option -> Mopipeline.t option) =
+    Await_blocking.with_await Terminator.never ~f:(fun await ->
+        Mutex.with_key await t.mutex ~f:(fun key ->
+            
+              Capsule.Expert.Key.access key ~f:(fun access ->
+                  let pipeline = Capsule.Data.unwrap ~access t.data in
+                  let msg = Capsule.Data.unwrap ~access t.msg in
+                  let result = f !msg !pipeline in
+                  pipeline := result)))
