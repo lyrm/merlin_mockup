@@ -4,7 +4,7 @@ type completion = All | Part of int
 type config = { source : string; completion : completion }
 
 type msg =
-  | Msg of [ `Closing | `Cancel | `Exn of exn ] @@ many
+  | Msg of [ `Closing | `Cancel | `Exn of exn ] @@ many portable
   | Config of config
   | Partial_is_available
 
@@ -15,7 +15,7 @@ type 'k unpacked = {
   cond : 'k Mutex.Condition.t;
 }
 
-type 'a t = P : 'k unpacked -> 'a t
+type t = P : 'k unpacked -> t [@@unboxed]
 
 let create () =
   let (P { data; mutex }) =
@@ -73,7 +73,7 @@ let recv_clear (P t) =
            #(value, key)))
         .aliased)
 
-type ('b : immutable_data) on_pipeline = msg option -> Mopipeline.t option -> 'b  
+type ('b : immutable_data) on_pipeline = msg option -> Mopipeline.t option -> 'b
 
 let protected_apply (P t) (f : 'b on_pipeline) =
   let result =

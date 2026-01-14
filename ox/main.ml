@@ -2,7 +2,7 @@ open! Await
 
 let domain_typer shared =
   match Shared.recv_clear shared with
-  | Config cfg ->
+  | Config _cfg ->
       Shared.send_and_wait shared
         (Config { completion = All; source = "some file" })
   | _ -> failwith "unexpected msg"
@@ -14,7 +14,7 @@ let main () =
   Scheduler.parallel scheduler ~f:(fun par ->
       let #((), ()) =
         Parallel.fork_join2 par
-          (fun _ -> Mopipeline.domain_typer shared)
+          (fun _ -> domain_typer shared)
           (fun _ -> (* Envoie msg *) ())
       in
       ());
