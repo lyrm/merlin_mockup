@@ -20,6 +20,11 @@ let analysis shared partial_pipeline config =
   Moshared.protect shared.msg (fun () ->
       Atomic.set shared.waiting false;
       run_analysis partial_pipeline config;
+
+      (*
+run partie pure de l'analyse en parallèle
+et mettre sous mutex que la mutation finale pour simuler comportement de la plupart des requêtes de l'analyse
+*)
       Moshared.signal shared.msg)
 
 (** [run] = New_merlin.run ou New_commands.run *)
