@@ -165,8 +165,6 @@ let pp_def out (x, y) = Format.fprintf out "Value of \"%s\" is %d.\n" x y
       |> List.fold_left (fun env (name, def) -> eval env (name, def) :: env) []
     ]} *)
 
-
-
 let domain_name () =
   if Domain.is_main_domain () then "[Main]" else "      [Typer]"
 

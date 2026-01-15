@@ -1,5 +1,5 @@
 type completion = All | Part of int
-type config = { source : string; completion : completion }
+type t = { source : string; completion : completion }
 
 let available_files = List.init 3 (fun i -> "test/test" ^ string_of_int i)
 let test_one = [ { source = "test/test1"; completion = All } ]

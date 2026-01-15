@@ -1,15 +1,7 @@
 open Await
 
-type completion = All | Part of int
-type config = { source : string; completion : completion }
-
-type msg =
-  | Msg of [ `Closing | `Cancel | `Exn of exn ] @@ many portable
-  | Config of config
-  | Partial_is_available
-
 type 'k unpacked = {
-  msg : (msg option ref, 'k) Capsule.Data.t;
+  msg : (Msg.t option ref, 'k) Capsule.Data.t;
   data : (Mopipeline.t option ref, 'k) Capsule.Data.t;
   mutex : 'k Mutex.t;
   cond : 'k Mutex.Condition.t;
@@ -73,7 +65,8 @@ let recv_clear (P t) =
            #(value, key)))
         .aliased)
 
-type ('b : immutable_data) on_pipeline = msg option -> Mopipeline.t option -> 'b
+type ('b : immutable_data) on_pipeline =
+  Msg.t option -> Mopipeline.t option -> 'b
 
 let protected_apply (P t) (f : 'b on_pipeline) =
   let result =
@@ -91,12 +84,11 @@ let protected_apply (P t) (f : 'b on_pipeline) =
   result.aliased
 
 let protected_update (P t)
-    (f : msg option -> Mopipeline.t option -> Mopipeline.t option) =
-    Await_blocking.with_await Terminator.never ~f:(fun await ->
-        Mutex.with_key await t.mutex ~f:(fun key ->
-            
-              Capsule.Expert.Key.access key ~f:(fun access ->
-                  let pipeline = Capsule.Data.unwrap ~access t.data in
-                  let msg = Capsule.Data.unwrap ~access t.msg in
-                  let result = f !msg !pipeline in
-                  pipeline := result)))
+    (f : Msg.t option -> Mopipeline.t option -> Mopipeline.t option) =
+  Await_blocking.with_await Terminator.never ~f:(fun await ->
+      Mutex.with_key await t.mutex ~f:(fun key ->
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let pipeline = Capsule.Data.unwrap ~access t.data in
+              let msg = Capsule.Data.unwrap ~access t.msg in
+              let result = f !msg !pipeline in
+              pipeline := result)))
