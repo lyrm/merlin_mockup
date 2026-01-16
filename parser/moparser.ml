@@ -138,9 +138,9 @@ let rec eval env = function
       op_int lv rv
 
 let eval env (name, expr) = (name, eval env expr)
-let power_26 = [| 1; 26; 676; 17576; 456976 |]
 
 let name count =
+  let power_26 = [| 1; 26; 676; 17576; 456976 |] in
   let rec loop pow =
     if count / power_26.(pow + 1) = 0 then pow else loop (pow + 1)
   in

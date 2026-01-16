@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-./_build/default/lib/merlin_mockup.exe $1 &
+# ./_build/default/lib/merlin_mockup.exe $1 &
+./_build/default/ox/main.exe $1 &
 PID=$!
 
 sleep 1

@@ -1,3 +1,9 @@
 (executable
  (name main)
- (libraries moparser await basement parallel parallel.scheduler))
+ (libraries
+  moparser
+  await
+  basement
+  parallel
+  parallel.scheduler
+  oxcaml_effect))
