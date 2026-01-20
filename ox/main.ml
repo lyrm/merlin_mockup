@@ -26,7 +26,7 @@ let run_analysis shared _config =
       Option.iter (fun pipeline ->
           let evals = pipeline.Mopipeline.evals in
           let save = !evals in
-          Moparser.rename evals;
+          Moparser_wrapper.rename evals;
           pipeline.evals := save))
 
 (** [New_merlin.run] ou [New_commands.run] *)
@@ -47,7 +47,7 @@ let () =
             Server.listen ~handle:(fun req ->
                 run shared req;
                 let res = !(Obj.magic_uncontended Motyper.res) |> List.rev in
-                Moparser.to_string (ref res));
+                Moparser_wrapper.to_string (ref res));
             Shared.send_and_wait shared (Msg `Closing))
           (fun _ -> typer shared)
       in
