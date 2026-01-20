@@ -56,34 +56,54 @@ let res : result = ref []
     | `Loop (env, rest) -> loop until env (count + 1) rest
   in
   loop until env 0 defs *)
-let type_structure shared env ~until defs = assert false
 
-let type_implementation handler shared defs config =
+let type_structure _shared env ~until defs =
+  let loop : type r.
+      r res ->
+      (string * int) list ->
+      int ->
+      (string * Moparser.expr) list ->
+      unit =
+   fun _until _env _count _ldefs -> ()
+   (* Should use protect here *)
+   (* Shared.protected_apply shared (fun msg _ ->
+        match msg with
+        | Some (Msg `Closing) -> raise Cancel_or_closing
+        | Some (Msg `Cancel) -> raise Cancel_or_closing
+        | Some (Config _) ->
+            failwith "Unexpected message in type_structure : config"
+        | Some Partial_is_available ->
+            failwith "Unexpected message in type_structure : partial"
+        | Some (Msg (`Exn _)) ->
+            failwith "Unexpected message in type_structure : exn"
+        | None -> assert false) *)
+   (* match ldefs with
+            | def :: rest -> (
+                let v, e =
+                  try Motool_parser.eval env def
+                  with exn ->
+                    Moshared.unlock shared_result;
+                    raise exn
+                in
+                res := (v, e) :: !res;
+                Moshared.unlock shared_result;
+                match until with
+                | Partial i when i = count -> (res, (v, e) :: env, rest)
+                | _ ->
+                    Utils.stupid_work () |> ignore;
+                    loop until ((v, e) :: env) (count + 1) rest)
+            | [] -> (
+                Moshared.unlock shared_result;
+                match until with Partial _ -> (res, env, []) | Complete -> res)) *)
+  in
+  loop until env 0 defs
+
+let type_implementation shared defs config =
   match config.completion with
   | All -> type_structure ~until:Complete shared [] defs
-  | Part i ->
-      let partial, env, rest =
-        type_structure ~until:(Partial i) shared [] defs
-      in
-      Eff.perform handler (Partial (TI partial));
-      let _suffix =
-        try type_structure ~until:Complete shared env rest with
-        | Cancel_or_closing -> raise Cancel_or_closing
-        | exn -> raise (Exception_after_partial exn)
-      in
-      ()
+  | Part _ -> assert false
 
-let run (handler : Eff.Handler.t @ local) shared defs config =
+let run shared defs config =
   (* Reset "typer" state *)
-  Obj.magic_uncontended res := [];
-  let rec handle = function
-    | Eff.Value res -> res
-    | Exception exn -> raise exn
-    | Operation (Partial (TI r), k) ->
-        Eff.perform handler (Partial (Run r));
-        handle (Effect.continue k () [])
-    | Operation (Partial (Run _), _) -> assert false
-  in
-  handle
-    (Eff.run (fun handler -> type_implementation handler shared defs config))
-  [@nontail]
+  res := [];
+  type_implementation shared defs config
