@@ -2,16 +2,6 @@ module Unix = UnixLabels
 
 let log fmt = Utils.log 0 ("Server : " ^^ fmt)
 
-let setup_server ~socket_fname =
-  let socket =
-    Unix.socket ~cloexec:true ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0
-  in
-  let addr = Unix.ADDR_UNIX socket_fname in
-  Unix.bind socket ~addr;
-  Unix.listen socket ~max:5;
-  log "server is setup";
-  socket
-
 let parse_request req =
   match String.split_on_char '\n' req with
   | [ source; compl ] ->
@@ -35,11 +25,17 @@ let respond socket resp =
   log "IO: write response %S" resp;
   Unix.close socket
 
-let listen ~socket_fname ~handle =
-  let server = setup_server ~socket_fname in
+let listen ~handle =
+  let socket =
+    Unix.socket ~cloexec:true ~domain:PF_INET ~kind:SOCK_STREAM ~protocol:0
+  in
+  let addr = Unix.(ADDR_INET (inet_addr_loopback, 8080)) in
+  Unix.bind socket ~addr;
+  Unix.listen socket ~max:5;
+  log "server socket is setup";
   try
     while true do
-      let client, _client_addr = Unix.accept server in
+      let client, _client_addr = Unix.accept socket in
       match read_request client |> parse_request with
       | None -> log "malformed response"
       | Some req -> respond client (handle req)

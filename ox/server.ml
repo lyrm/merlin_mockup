@@ -1,14 +1,5 @@
 module Unix = UnixLabels
 
-let setup_server ~socket_fname =
-  let socket =
-    Unix.socket ~cloexec:true ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0
-  in
-  let addr = Unix.ADDR_UNIX socket_fname in
-  Unix.bind socket ~addr;
-  Unix.listen socket ~max:5;
-  socket
-
 let parse_request req =
   match String.split_on_char '\n' req with
   | [ source; "all" ] -> Some { Moconfig.source; completion = All }
@@ -28,11 +19,16 @@ let respond socket resp =
   |> ignore;
   Unix.close socket
 
-let listen ~socket_fname ~handle =
-  let server = setup_server ~socket_fname in
+let listen ~handle =
+  let socket =
+    Unix.socket ~cloexec:true ~domain:PF_INET ~kind:SOCK_STREAM ~protocol:0
+  in
+  let addr = Unix.(ADDR_INET (inet_addr_loopback, 8080)) in
+  Unix.bind socket ~addr;
+  Unix.listen socket ~max:5;
   try
     while true do
-      let client, _client_addr = Unix.accept server in
+      let client, _client_addr = Unix.accept socket in
       match read_request client |> parse_request with
       | None -> ()
       | Some req -> respond client (handle req)
