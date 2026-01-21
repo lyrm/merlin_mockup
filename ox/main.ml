@@ -46,8 +46,20 @@ let () =
           (fun _ ->
             Server.listen ~handle:(fun req ->
                 run shared req;
-                let res = !(Obj.magic_uncontended Motyper.res) |> List.rev in
-                Moparser_wrapper.to_string (ref res));
+                let resp =
+                  Await_blocking.with_await Terminator.never ~f:(fun await ->
+                      Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
+                          Capsule.Expert.Key.access key ~f:(fun access ->
+                              let res =
+                                Capsule.Data.unwrap ~access Motyper.res
+                              in
+                              {
+                                Modes.Aliased.aliased =
+                                  Moparser_wrapper.to_string
+                                    (ref (List.rev !res));
+                              })))
+                in
+                resp.aliased);
             Shared.send_and_wait shared (Msg `Closing))
           (fun _ -> typer shared)
       in

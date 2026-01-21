@@ -1,29 +1,32 @@
 open Await
 module Lock = Capsule.Mutex.Create ()
 
-type lock = Lock.k
+type k = Lock.k
+type mutex = k Mutex.t
 
 type 'a t : value mod contended portable = {
   msg : (Msg.t option ref, Lock.k) Capsule.Data.t;
   data : ('a option ref, Lock.k) Capsule.Data.t;
-  mutex : Lock.k Mutex.t;
+  mutex : mutex;
   cond : Lock.k Mutex.Condition.t;
 }
 (* Pour DESIGN 1 >
    data: vérifier qu'on a besoin d'encapsuler dans une ref. *)
+
+let global_mutex = Lock.mutex
+let global_cond = Mutex.Condition.create ()
 
 let create () =
   let data = Capsule.Data.create (fun () -> (ref None, ref None)) in
   {
     msg = Capsule.Data.fst data;
     data = Capsule.Data.snd data;
-    mutex = Lock.mutex;
-    cond = Mutex.Condition.create ();
+    mutex = global_mutex;
+    cond = global_cond;
   }
 
-let mutex t = t.mutex
+let mutex _ = global_mutex
 let data t = t.data
-let cond t = t.cond
 
 let project t ~f =
   let data =
@@ -68,7 +71,7 @@ let recv_clear t =
                    let key =
                      Mutex.Condition.wait await t.cond ~lock:t.mutex key
                    in
-                   loop key [@nontail]
+                   loop key
                | Some value -> #({ Modes.Aliased.aliased = value }, key)
              in
              loop key

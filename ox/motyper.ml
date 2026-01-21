@@ -19,7 +19,8 @@ type _ res =
       -> (result * (string * int) list * (string * Moparser.expr) list) res
   | Complete : result res
 
-let res : result = ref []
+let res : (result, Shared.k) Capsule.Data.t =
+  Capsule.Data.create (fun () -> ref [])
 
 (* let type_structure shared env ~until defs =
   let rec loop : type r. r res -> _ -> _ -> _ -> r =
@@ -103,7 +104,14 @@ let type_implementation shared defs config =
   | All -> type_structure ~until:Complete shared [] defs
   | Part _ -> assert false
 
+let reset_typer_state shared =
+  let open! Await in
+  Await_blocking.with_await Terminator.never ~f:(fun await ->
+      Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let res = Capsule.Data.unwrap ~access res in
+              res := [])))
+
 let run shared defs config =
-  (* Reset "typer" state *)
-  res := [];
+  reset_typer_state shared;
   type_implementation shared defs config

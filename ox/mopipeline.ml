@@ -16,9 +16,12 @@ let merge shared typer_result f =
               in
               pipeline := Some (f (Option.get !pipeline) (Option.get !result)))))
 
-let process shared config =
-  let raw_def = Moparser.buffer_to_words config.Moconfig.source in
-  let defs = List.map Moparser.lexer raw_def |> List.map Moparser.parse_def in
+let (process @ portable) shared config =
+  let raw_def = Moparser_wrapper.buffer_to_words config.Moconfig.source in
+  let defs =
+    List.map Moparser_wrapper.lexer raw_def
+    |> List.map Moparser_wrapper.parse_def
+  in
   let evals =
     Shared.project shared ~f:(fun o ->
         Option.map (fun pipeline -> pipeline.evals) o)

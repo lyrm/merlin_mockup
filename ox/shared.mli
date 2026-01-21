@@ -2,13 +2,13 @@
 
 open! Await
 
-type lock
 type 'a t : value mod contended portable
+type k
+type mutex = k Mutex.t
 
 val create : unit -> 'a t
-val mutex : 'a t -> lock Mutex.t
-val data : 'a t -> ('a option ref, lock) Capsule.Data.t
-val cond : 'a t -> lock Mutex.Condition.t
+val data : 'a t -> ('a option ref, k) Capsule.Data.t
+val mutex : 'a t -> mutex
 val send_and_wait : 'a t -> Msg.t -> unit
 val recv_clear : 'a t -> Msg.t
 val project : 'a t -> f:('a option -> 'b option) @ portable -> 'b t
