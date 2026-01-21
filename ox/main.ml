@@ -1,7 +1,7 @@
 open! Await
 
 (** Anciennement [domain_typer] *)
-let typer (shared : Mopipeline.t Shared.packed) =
+let typer (shared : Mopipeline.t Shared.t) =
   let rec loop () =
     try
       match Shared.recv_clear shared with

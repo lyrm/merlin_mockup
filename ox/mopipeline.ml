@@ -8,15 +8,15 @@ type t = {
 let merge shared typer_result f =
   let open Await in
   Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await shared.Shared.mutex ~f:(fun key ->
+      Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
           Capsule.Expert.Key.access key ~f:(fun access ->
-              let pipeline = Capsule.Data.unwrap ~access shared.data in
+              let pipeline = Capsule.Data.unwrap ~access (Shared.data shared) in
               let result =
-                Capsule.Data.unwrap ~access typer_result.Shared.data
+                Capsule.Data.unwrap ~access (Shared.data typer_result)
               in
               pipeline := Some (f (Option.get !pipeline) (Option.get !result)))))
 
-let process (Shared.P shared) config =
+let process shared config =
   let raw_def = Moparser.buffer_to_words config.Moconfig.source in
   let defs = List.map Moparser.lexer raw_def |> List.map Moparser.parse_def in
   let evals =

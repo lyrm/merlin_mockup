@@ -1,28 +1,29 @@
 open Await
+module Lock = Capsule.Mutex.Create ()
 
-type ('a, 'k) t : value mod contended portable = {
-  msg : (Msg.t option ref, 'k) Capsule.Data.t;
-  data : ('a option ref, 'k) Capsule.Data.t;
-  mutex : 'k Mutex.t;
-  cond : 'k Mutex.Condition.t;
+type lock = Lock.k
+
+type 'a t : value mod contended portable = {
+  msg : (Msg.t option ref, Lock.k) Capsule.Data.t;
+  data : ('a option ref, Lock.k) Capsule.Data.t;
+  mutex : Lock.k Mutex.t;
+  cond : Lock.k Mutex.Condition.t;
 }
 (* Pour DESIGN 1 >
    data: vérifier qu'on a besoin d'encapsuler dans une ref. *)
 
-type 'a packed : value mod contended portable = P : ('a, 'k) t -> 'a packed
-[@@unboxed]
-
 let create () =
-  let (P { data; mutex }) =
-    Capsule.With_mutex.create (fun () -> (ref None, ref None))
-  in
-  P
-    {
-      msg = Capsule.Data.fst data;
-      data = Capsule.Data.snd data;
-      mutex;
-      cond = Mutex.Condition.create ();
-    }
+  let data = Capsule.Data.create (fun () -> (ref None, ref None)) in
+  {
+    msg = Capsule.Data.fst data;
+    data = Capsule.Data.snd data;
+    mutex = Lock.mutex;
+    cond = Mutex.Condition.create ();
+  }
+
+let mutex t = t.mutex
+let data t = t.data
+let cond t = t.cond
 
 let project t ~f =
   let data =
@@ -36,7 +37,7 @@ let project t ~f =
   in
   { t with data }
 
-let send_and_wait (P t) msg =
+let send_and_wait t msg =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
       Mutex.with_key await t.mutex ~f:(fun key ->
           let #((), key) =
@@ -50,7 +51,7 @@ let send_and_wait (P t) msg =
               assert (!(Capsule.Data.unwrap ~access t.msg) = None)))
       [@nontail])
 
-let recv_clear (P t) =
+let recv_clear t =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
       (Mutex.with_key await t.mutex ~f:(fun key ->
            let #(value, key) : _ @ many =
@@ -80,7 +81,7 @@ let recv_clear (P t) =
            #(value, key)))
         .aliased)
 
-let protected_apply (P t) (f : _ -> _ -> ('b : immutable_data)) =
+let protected_apply t (f : _ -> _ -> ('b : immutable_data)) =
   let { Modes.Aliased.aliased; _ } =
     Await_blocking.with_await Terminator.never ~f:(fun await ->
         Mutex.with_key await t.mutex ~f:(fun key ->
@@ -92,7 +93,7 @@ let protected_apply (P t) (f : _ -> _ -> ('b : immutable_data)) =
   in
   aliased
 
-let protected_set (P t) f =
+let protected_set t f =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
       Mutex.with_key await t.mutex ~f:(fun key ->
           Capsule.Expert.Key.access key ~f:(fun access ->

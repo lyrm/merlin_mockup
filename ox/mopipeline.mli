@@ -7,5 +7,5 @@ type t = {
   evals : Motyper.result;
 }
 
-val process : t Shared.packed -> Moconfig.t -> unit
-val get : 'a Shared.packed -> Moconfig.t -> unit
+val process : t Shared.t -> Moconfig.t -> unit
+val get : t Shared.t -> Moconfig.t -> unit
