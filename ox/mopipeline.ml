@@ -5,18 +5,7 @@ type t = {
   evals : Motyper.result;
 }
 
-let merge shared typer_result f =
-  let open Await in
-  Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              let pipeline = Capsule.Data.unwrap ~access (Shared.data shared) in
-              let result =
-                Capsule.Data.unwrap ~access (Shared.data typer_result)
-              in
-              pipeline := Some (f (Option.get !pipeline) (Option.get !result)))))
-
-let (process @ portable) shared config =
+let process shared config =
   let raw_def = Moparser_wrapper.buffer_to_words config.Moconfig.source in
   let defs =
     List.map Moparser_wrapper.lexer raw_def
@@ -26,9 +15,12 @@ let (process @ portable) shared config =
     Shared.project shared ~f:(fun o ->
         Option.map (fun pipeline -> pipeline.evals) o)
   in
+  prerr_endline "Typer: evals got";
   Motyper.run evals defs config;
-  merge shared evals (fun _pipeline evals ->
-      { source = config.source; raw_def; defs; evals })
+  prerr_endline "Typer: typer has ran"
+
+(*; Shared.merge evals ~within:shared ~f:(fun evals ~within:_ ->
+      { source = config.source; raw_def; defs; evals = Option.get evals }) *)
 
 (* let rec handle = function
       | Motyper.Eff.Value evals -> evals
@@ -48,7 +40,10 @@ let (process @ portable) shared config =
 
 let get shared cfg =
   Shared.send_and_wait shared (Config cfg);
+  prerr_endline "Main: send config";
   match Shared.recv_clear shared with
-  | Partial_is_available -> ()
+  | Partial_is_available ->
+      prerr_endline "Main: partial is available !";
+      ()
   | Msg (`Exn exn) -> raise exn
   | _ -> failwith "Unexpected message"

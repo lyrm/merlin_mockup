@@ -18,3 +18,10 @@ val protected_apply :
   'a t -> (Msg.t option -> 'a option -> 'b) @ portable -> 'b
 
 val protected_set : 'a t -> (Msg.t option -> 'a option) @ portable -> unit
+
+val inject_capsule :
+  ('c : immutable_data).
+  ('a ref, k) Capsule_expert.Data.t ->
+  within:'b t @ portable ->
+  f:(Msg.t option -> 'a ref -> 'b option -> 'c) @ portable ->
+  'c

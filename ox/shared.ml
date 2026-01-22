@@ -57,7 +57,7 @@ let send_and_wait t msg =
 let recv_clear t =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
       (Mutex.with_key await t.mutex ~f:(fun key ->
-           let #(value, key) : _ @ many =
+           let #(value, key) =
              let rec loop key =
                let #(value, key) =
                  Capsule.Expert.Key.access key ~f:(fun access ->
@@ -103,3 +103,16 @@ let protected_set t f =
               let data = Capsule.Data.unwrap ~access t.data in
               let msg = Capsule.Data.unwrap ~access t.msg in
               data := f !msg)))
+
+let inject_capsule capsule ~within:t ~(f : _ -> _ -> _ -> ('c : immutable_data))
+    =
+  let { Modes.Aliased.aliased; _ } =
+    Await_blocking.with_await Terminator.never ~f:(fun await ->
+        Mutex.with_key await global_mutex ~f:(fun key ->
+            Capsule.Expert.Key.access key ~f:(fun access ->
+                let msg = Capsule.Data.unwrap ~access t.msg in
+                let capsule = Capsule.Data.unwrap ~access capsule in
+                let within = Capsule.Data.unwrap ~access t.data in
+                { Modes.Aliased.aliased = f !msg capsule !within })))
+  in
+  aliased
