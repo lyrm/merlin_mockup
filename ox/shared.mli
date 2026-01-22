@@ -7,21 +7,48 @@ type k
 type mutex = k Mutex.t
 
 val create : unit -> 'a t
-val data : 'a t -> ('a option ref, k) Capsule.Data.t
-val mutex : 'a t -> mutex
 val send_and_wait : 'a t -> Msg.t -> unit
 val recv_clear : 'a t -> Msg.t
-val project : 'a t -> f:('a option -> 'b option) @ portable -> 'b t
 
-val protected_apply :
+val create_from :
+  'a t ->
+  ('b, k) Capsule_expert.Data.t ->
+  f:('b -> 'c option) @ portable ->
+  'c t
+
+val map : 'a t -> f:('a option -> 'b option) @ portable -> 'b t
+(** [map t ~f] applies [f] to the data inside [t] under the protection of its
+    mutex and returns a new shared data structure with the same mutex, condition
+    and message. *)
+
+val apply :
   ('b : immutable_data).
-  'a t -> (Msg.t option -> 'a option -> 'b) @ portable -> 'b
+  'a t -> f:(Msg.t option -> 'a option -> 'b) @ portable -> 'b
+(** [apply t ~f] applies [f] to the message and data inside [t] under the
+    protection of its mutex and returns the result. *)
 
-val protected_set : 'a t -> (Msg.t option -> 'a option) @ portable -> unit
+(* val set : 'a t -> f:(Msg.t option -> 'a option) @ portable -> unit  *)
+(** [set t f] sets the data inside [t] to [f msg] where [msg] is the message
+    currently stored inside [t], all under the protection of its mutex. *)
 
-val inject_capsule :
-  ('c : immutable_data).
+val apply_with_capsule :
+  ('c : immutable_data) ('b : value mod portable).
   ('a ref, k) Capsule_expert.Data.t ->
-  within:'b t @ portable ->
+  'b t ->
   f:(Msg.t option -> 'a ref -> 'b option -> 'c) @ portable ->
   'c
+(** [apply_with_capsule c t ~f] applies [f] to the content of [c] and [within]'s
+    message and data under the protection of [within]'s mutex. It returns the
+    result of this application.
+
+    This is a way to work on the content of a capsule while ensuring mutual
+    exclusion with other operations on the shared data structure [within]. *)
+
+val merge :
+  ('a : value mod portable) ('b : value mod portable).
+  'a t ->
+  within:'b t ->
+  f:('a option -> 'b option -> 'b option) @ portable ->
+  unit
+(** [merge t ~within ~f] updates the content of [within] by applying [f] to the
+    content of [t] and [within] under the protection of [within]'s mutex. *)

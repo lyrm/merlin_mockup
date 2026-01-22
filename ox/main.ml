@@ -1,29 +1,5 @@
 open! Await
 
-(** Anciennement [domain_typer] *)
-let typer shared =
-  let rec loop () =
-    try
-      prerr_endline "Typer: looping";
-      match Shared.recv_clear shared with
-      | Config config ->
-          prerr_endline "Typer: received config";
-          let () = Mopipeline.process shared config in
-          prerr_endline "Typer: pipeline processed";
-          Shared.send_and_wait shared Partial_is_available;
-          prerr_endline "Typer: partial is available";
-          loop ()
-      | Msg `Closing -> ()
-      | Msg `Cancel -> loop ()
-      | _ -> failwith "unexpected msg"
-    with
-    | Motyper.(Cancel_or_closing | Exception_after_partial _) -> loop ()
-    | exn ->
-        Shared.send_and_wait shared (Msg (`Exn exn));
-        loop ()
-  in
-  loop ()
-
 (** [Query_commands.run] et [Query_commands.run_analysis] *)
 (* let run_analysis shared _config =
   Shared.protected_apply shared (fun _msg ->
@@ -60,17 +36,14 @@ let () =
             run shared req;
             prerr_endline "Ran";
             let resp =
-              Await_blocking.with_await Terminator.never ~f:(fun await ->
-                  Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
-                      Capsule.Expert.Key.access key ~f:(fun access ->
-                          let res = Capsule.Data.unwrap ~access Motyper.res in
-                          {
-                            Modes.Aliased.aliased =
-                              Moparser_wrapper.to_string (ref (List.rev !res));
-                          })))
+              Shared.apply shared ~f:(fun _ -> function None -> failwith "No result"
+              | Some Mopipeline.{evals;_} ->
+                let res = Motyper.(evals.typedtree) in
+                Moparser_wrapper.to_string
+                  (ref (List.rev !res)))
             in
-            prerr_endline @@ "Respond: " ^ resp.aliased;
-            resp.aliased);
+            prerr_endline @@ "Respond: " ^ resp;
+            resp);
         Shared.send_and_wait shared (Msg `Closing);
         Atomic.incr counter)
       ()
@@ -78,7 +51,7 @@ let () =
   let* () =
     Multicore.spawn
       (fun () ->
-        typer shared;
+        Mopipeline.typer shared;
         Atomic.incr counter)
       ()
   in

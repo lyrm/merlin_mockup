@@ -11,16 +11,16 @@ let process shared config =
     List.map Moparser_wrapper.lexer raw_def
     |> List.map Moparser_wrapper.parse_def
   in
-  let evals =
-    Shared.project shared ~f:(fun o ->
-        Option.map (fun pipeline -> pipeline.evals) o)
+  let evals : Motyper.result Shared.t =
+    Shared.create_from shared Motyper.res ~f:(fun r ->
+        Some Motyper.{ config; typedtree = r })
   in
   prerr_endline "Typer: evals got";
   Motyper.run evals defs config;
-  prerr_endline "Typer: typer has ran"
+  prerr_endline "Typer: typer has ran";
 
-(*; Shared.merge evals ~within:shared ~f:(fun evals ~within:_ ->
-      { source = config.source; raw_def; defs; evals = Option.get evals }) *)
+  Shared.merge evals ~within:shared ~f:(fun evals _ ->
+      Some { source = config.source; raw_def; defs; evals = Option.get evals })
 
 (* let rec handle = function
       | Motyper.Eff.Value evals -> evals
@@ -47,3 +47,27 @@ let get shared cfg =
       ()
   | Msg (`Exn exn) -> raise exn
   | _ -> failwith "Unexpected message"
+
+(** Anciennement [domain_typer] *)
+let typer shared =
+  let rec loop () =
+    try
+      prerr_endline "Typer: looping";
+      match Shared.recv_clear shared with
+      | Config config ->
+          prerr_endline "Typer: received config";
+          let () = process (shared : t Shared.t) config in
+          prerr_endline "Typer: pipeline processed";
+          Shared.send_and_wait shared Partial_is_available;
+          prerr_endline "Typer: partial is available";
+          loop ()
+      | Msg `Closing -> ()
+      | Msg `Cancel -> loop ()
+      | _ -> failwith "unexpected msg"
+    with
+    | Motyper.(Cancel_or_closing | Exception_after_partial _) -> loop ()
+    | exn ->
+        Shared.send_and_wait shared (Msg (`Exn exn));
+        loop ()
+  in
+  loop ()

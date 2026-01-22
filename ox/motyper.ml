@@ -1,6 +1,6 @@
 open Moconfig
 
-type result = (string * int) list ref
+type result = { config : Moconfig.t; typedtree : (string * int) list ref }
 
 exception Cancel_or_closing
 exception Exception_after_partial of exn
@@ -19,17 +19,17 @@ type _ res =
       -> (result * (string * int) list * (string * Moparser.expr) list) res
   | Complete : result res
 
-let res : (result, Shared.k) Capsule.Data.t =
+let res : ((string * int) list ref, Shared.k) Capsule.Data.t =
   Capsule.Data.create (fun () -> ref [])
 
 type state =
   | Finish
   | Rest of (string * Moparser_wrapper.expr) list * (string * int)
 
-let type_structure shared env ~until defs =
+let type_structure (shared : result Shared.t) env ~until defs =
   let rec loop until env count ldefs =
     let typer_state =
-      Shared.inject_capsule res ~within:shared ~f:(fun msg res _ ->
+      Shared.apply shared ~f:(fun msg res ->
           match (msg, ldefs) with
           | Some (Msg `Closing), _ -> raise Cancel_or_closing
           | Some (Msg `Cancel), _ -> raise Cancel_or_closing
@@ -43,7 +43,10 @@ let type_structure shared env ~until defs =
               let v, e = Moparser_wrapper.eval env def in
               prerr_endline "eval current item";
               prerr_endline "add evaluated items";
-              res := (v, e) :: !res;
+              let res =
+                match res with None -> assert false | Some res -> res
+              in
+              res.typedtree := (v, e) :: !(res.typedtree);
               Rest (rest, (v, e))
           | None, [] -> Finish)
     in
@@ -72,11 +75,8 @@ let type_implementation shared defs config =
 
 let reset_typer_state shared =
   let open! Await in
-  Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await (Shared.mutex shared) ~f:(fun key ->
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              let res = Capsule.Data.unwrap ~access res in
-              res := [])))
+  Shared.apply shared ~f:(fun _ -> function
+    | None -> () | Some result -> result.typedtree := [])
 
 let run shared defs config =
   reset_typer_state shared;

@@ -9,3 +9,4 @@ type t = {
 
 val process : t Shared.t -> Moconfig.t -> unit
 val get : t Shared.t -> Moconfig.t -> unit
+val typer : t Shared.t -> unit

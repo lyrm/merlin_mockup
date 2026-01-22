@@ -25,15 +25,12 @@ let create () =
     cond = global_cond;
   }
 
-let mutex _ = global_mutex
-let data t = t.data
-
-let project t ~f =
+let create_from t capsule ~f =
   let data =
     (Await_blocking.with_await Terminator.never ~f:(fun await ->
-         Mutex.with_password await t.mutex ~f:(fun password ->
+         Mutex.with_password await global_mutex ~f:(fun password ->
              let aliased =
-               Capsule_expert.Data.map ~password ~f:(fun x -> ref (f !x)) t.data
+               Capsule_expert.Data.map ~password ~f:(fun x -> ref (f x)) capsule
              in
              { Modes.Aliased.aliased })))
       .aliased
@@ -84,10 +81,10 @@ let recv_clear t =
            #(value, key)))
         .aliased)
 
-let protected_apply t (f : _ -> _ -> ('b : immutable_data)) =
+let apply t ~(f : _ -> _ -> ('b : immutable_data)) =
   let { Modes.Aliased.aliased; _ } =
     Await_blocking.with_await Terminator.never ~f:(fun await ->
-        Mutex.with_key await t.mutex ~f:(fun key ->
+        Mutex.with_key await global_mutex ~f:(fun key ->
             Capsule.Expert.Key.access key ~f:(fun access ->
                 let pipeline = Capsule.Data.unwrap ~access t.data in
                 let msg = Capsule.Data.unwrap ~access t.msg in
@@ -96,16 +93,27 @@ let protected_apply t (f : _ -> _ -> ('b : immutable_data)) =
   in
   aliased
 
-let protected_set t f =
+(* let set t ~f =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
       Mutex.with_key await t.mutex ~f:(fun key ->
           Capsule.Expert.Key.access key ~f:(fun access ->
               let data = Capsule.Data.unwrap ~access t.data in
               let msg = Capsule.Data.unwrap ~access t.msg in
-              data := f !msg)))
+              data := f !msg !data))) *)
 
-let inject_capsule capsule ~within:t ~(f : _ -> _ -> _ -> ('c : immutable_data))
-    =
+let map t ~f =
+  let data =
+    (Await_blocking.with_await Terminator.never ~f:(fun await ->
+         Mutex.with_password await global_mutex ~f:(fun password ->
+             let aliased =
+               Capsule_expert.Data.map ~password ~f:(fun x -> ref (f !x)) t.data
+             in
+             { Modes.Aliased.aliased })))
+      .aliased
+  in
+  { t with data }
+
+let apply_with_capsule capsule t ~(f : _ -> _ -> _ -> ('c : immutable_data)) =
   let { Modes.Aliased.aliased; _ } =
     Await_blocking.with_await Terminator.never ~f:(fun await ->
         Mutex.with_key await global_mutex ~f:(fun key ->
@@ -116,3 +124,26 @@ let inject_capsule capsule ~within:t ~(f : _ -> _ -> _ -> ('c : immutable_data))
                 { Modes.Aliased.aliased = f !msg capsule !within })))
   in
   aliased
+
+let merge :
+    ('a : value mod portable) ('b : value mod portable).
+    'a t ->
+    within:'b t ->
+    f:('a option -> 'b option -> 'b option) @ portable ->
+    unit =
+ fun t ~within ~f ->
+  Await_blocking.with_await Terminator.never ~f:(fun await ->
+      Mutex.with_key await global_mutex ~f:(fun key ->
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let data = !(Capsule.Data.unwrap ~access t.data) in
+              let within = Capsule.Data.unwrap ~access within.data in
+              within := f data !within)))
+
+(* let iter_with capsule t ~f =
+  Await_blocking.with_await Terminator.never ~f:(fun await ->
+      Mutex.with_key await global_mutex ~f:(fun key ->
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let capsule = Capsule.Data.unwrap ~access capsule in
+              let within = Capsule.Data.unwrap ~access t.data in
+              let msg = Capsule.Data.unwrap ~access t.msg in
+              within := Some (f !msg capsule !within)))) *)
