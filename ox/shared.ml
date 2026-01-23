@@ -5,8 +5,8 @@ type k = Lock.k
 type mutex = k Mutex.t
 
 type 'a t : value mod contended portable = {
-  msg : (Msg.t option ref, Lock.k) Capsule.Data.t;
-  data : ('a ref, Lock.k) Capsule.Data.t;
+  msg : (Msg.t option ref, k) Capsule.Data.t;
+  data : ('a ref, k) Capsule.Data.t;
 }
 (* Pour DESIGN 1 >
    data: vérifier qu'on a besoin d'encapsuler dans une ref. *)

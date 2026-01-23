@@ -2,6 +2,7 @@ open Moconfig
 
 [@@@warning "-37-32"]
 
+type parsedtree = (string * Moparser.expr) list
 type typedtree = (string * int) list ref
 type result = { config : Moconfig.t; typedtree : typedtree }
 
@@ -29,7 +30,7 @@ type state =
   | Finish
   | Rest of (string * Moparser_wrapper.expr) list * (string * int)
 
-let type_structure (shared : result Shared.t) env ~until defs =
+let type_structure (shared : typedtree Shared.t) env ~until parsedtree =
   let rec loop until env count ldefs =
     let typer_state =
       Shared.apply shared ~f:(fun msg res ->
@@ -43,10 +44,10 @@ let type_structure (shared : result Shared.t) env ~until defs =
           | Some (Msg (`Exn _)), _ ->
               failwith "Unexpected message in type_structure : exn"
           | None, def :: rest ->
-              let v, e = Moparser_wrapper.eval env def in
+              let v, e = Moparser_wrapper.eval_item env def in
               prerr_endline "eval current item";
               prerr_endline "add evaluated items";
-              res.typedtree := (v, e) :: !(res.typedtree);
+              res := (v, e) :: !res;
               Rest (rest, (v, e))
           | None, [] -> Finish)
     in
@@ -66,19 +67,17 @@ let type_structure (shared : result Shared.t) env ~until defs =
             Utils.stupid_work () |> ignore;
             loop until ((v, e) :: env) (count + 1) rest) *)
   in
-  loop until env 0 defs
+  loop until env 0 parsedtree
 
-let type_implementation shared defs config =
+let type_implementation config shared parsedtree =
   match config.completion with
-  | All -> type_structure ~until:Complete shared [] defs
+  | All -> type_structure ~until:Complete shared [] parsedtree
   | Part _ -> assert false
 
-let reset_typer_state shared =
-  let open! Await in
-  Shared.apply shared ~f:(fun _ result -> result.typedtree := [])
+let reset_typer_state () = Shared.protect_capsule res ~f:(fun res -> res := [])
 
-let run config parsedtree shared =
-  (* let p = Shared.apply shared ~f:(fun _ -> res) in *)
-  reset_typer_state shared;
-  prerr_endline "reset typer state";
-  type_implementation shared defs config
+let run config shared parsedtree =
+  reset_typer_state ();
+  let typedtree = Shared.create_from shared res ~f:(fun x -> x) in
+  type_implementation config typedtree parsedtree;
+  Shared.map typedtree ~f:(fun typedtree -> { config; typedtree })

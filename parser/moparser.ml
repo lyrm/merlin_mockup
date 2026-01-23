@@ -61,27 +61,34 @@ let in_par l =
   in
   loop 0 [] l
 
-let rec lexer = function
-  | "let" :: xs -> TLet :: lexer xs
-  | "=" :: xs -> TEq :: lexer xs
-  | "+" :: xs -> TAdd :: lexer xs
-  | "*" :: xs -> TMul :: lexer xs
-  | "-" :: xs -> TSub :: lexer xs
-  | "/" :: xs -> TDiv :: lexer xs
+let rec lex = function
+  | "let" :: xs -> TLet :: lex xs
+  | "=" :: xs -> TEq :: lex xs
+  | "+" :: xs -> TAdd :: lex xs
+  | "*" :: xs -> TMul :: lex xs
+  | "-" :: xs -> TSub :: lex xs
+  | "/" :: xs -> TDiv :: lex xs
   | "(" :: xs ->
       let inparen, after_paren = in_par xs in
-      TParen (lexer inparen) :: lexer after_paren
-  | "\n" :: xs -> lexer xs
+      TParen (lex inparen) :: lex after_paren
+  | "\n" :: xs -> lex xs
   | ")" :: _ -> failwith "Unmatched )"
-  | " " :: xs -> lexer xs
+  | " " :: xs -> lex xs
   | str :: xs -> (
       match int_of_string_opt str with
-      | Some i -> TInt i :: lexer xs
-      | None -> TVar str :: lexer xs)
+      | Some i -> TInt i :: lex xs
+      | None -> TVar str :: lex xs)
   | [] -> []
 
-type op = Div | Add | Sub | Mul
-type expr = Var of string | Int of int | Binop of (op * expr * expr)
+type typedtree = typed_item list
+and typed_item = string * int
+
+type parsedtree = parsed_item list
+and parsed_item = string * expr
+and expr = Var of string | Int of int | Binop of (op * expr * expr)
+and op = Div | Add | Sub | Mul
+
+type env = (string * int) list ref
 
 module Parser = struct
   let op_from_token = function
@@ -117,27 +124,26 @@ module Parser = struct
     | _ -> failwith "Not a valid definition"
 end
 
-let parse_def = Parser.def
-
-let rec eval env = function
-  | Int i -> i
-  | Var v -> (
-      match List.assoc_opt v env with
-      | None -> failwith ("Var " ^ v ^ " unknown.")
-      | Some ev -> ev)
-  | Binop (op, l, r) ->
-      let op_int =
-        match op with
-        | Add -> Int.add
-        | Mul -> Int.mul
-        | Sub -> Int.sub
-        | Div -> Int.div
-      in
-      let lv = eval env l in
-      let rv = eval env r in
-      op_int lv rv
-
-let eval env (name, expr) = (name, eval env expr)
+let eval_item env (name, expr) =
+  let rec eval env = function
+    | Int i -> i
+    | Var v -> (
+        match List.assoc_opt v env with
+        | None -> failwith ("Var " ^ v ^ " unknown.")
+        | Some ev -> ev)
+    | Binop (op, l, r) ->
+        let op_int =
+          match op with
+          | Add -> Int.add
+          | Mul -> Int.mul
+          | Sub -> Int.sub
+          | Div -> Int.div
+        in
+        let lv = eval env l in
+        let rv = eval env r in
+        op_int lv rv
+  in
+  (name, eval env expr)
 
 let name count =
   let power_26 = [| 1; 26; 676; 17576; 456976 |] in
@@ -158,7 +164,7 @@ let name count =
 let rename defs =
   defs := List.mapi (fun i (_, v) -> (name i, v)) (List.rev !defs)
 
-let pp_def out (x, y) = Format.fprintf out "Value of \"%s\" is %d.\n" x y
+let pp_def ppf (x, y) = Format.fprintf ppf "Value of \"%s\" is %d.\n" x y
 
 (** {[
       "test/test2" |> buffer_to_words |> List.map lexer |> List.map parse_def
@@ -174,12 +180,14 @@ let log lvl (fmt : ('a, Format.formatter, unit, unit) format4) : 'a =
     Format.eprintf (fmt ^^ "\n%!"))
   else Format.ifprintf Format.std_formatter fmt
 
-let print l =
+let print env =
   log 0 "@[<hov>%a@]@."
-    Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
-    !l
+    Format.(pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf "") pp_def)
+    !env
 
-let to_string l =
+let to_string env =
   Format.asprintf "@[<hov>%a@]@."
-    Format.(pp_print_list ~pp_sep:(fun out () -> fprintf out "") pp_def)
-    !l
+    Format.(pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf "") pp_def)
+    !env
+
+let parse buf = buffer_to_words buf |> List.map lex |> List.map Parser.def
