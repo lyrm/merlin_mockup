@@ -45,3 +45,6 @@ val merge :
   'a t -> within:'b t -> f:('a -> 'b -> 'b) @ portable -> unit
 (** [merge t ~within ~f] updates the content of [within] by applying [f] to the
     content of [t] and [within] under the protection of [within]'s mutex. *)
+
+val protect_capsule :
+  ('a, k) Capsule.Data.t -> f:('a -> 'b) @ portable -> ('b : immutable_data)

@@ -7,8 +7,6 @@ type mutex = k Mutex.t
 type 'a t : value mod contended portable = {
   msg : (Msg.t option ref, Lock.k) Capsule.Data.t;
   data : ('a ref, Lock.k) Capsule.Data.t;
-  mutex : mutex;
-  cond : Lock.k Mutex.Condition.t;
 }
 (* Pour DESIGN 1 >
    data: vérifier qu'on a besoin d'encapsuler dans une ref. *)
@@ -18,12 +16,7 @@ let global_cond = Mutex.Condition.create ()
 
 let create f =
   let data = Capsule.Data.create (fun () -> (ref None, ref (f ()))) in
-  {
-    msg = Capsule.Data.fst data;
-    data = Capsule.Data.snd data;
-    mutex = global_mutex;
-    cond = global_cond;
-  }
+  { msg = Capsule.Data.fst data; data = Capsule.Data.snd data }
 
 let create_from t capsule ~f =
   let data =
@@ -39,21 +32,23 @@ let create_from t capsule ~f =
 
 let send_and_wait t msg =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await t.mutex ~f:(fun key ->
+      Mutex.with_key await global_mutex ~f:(fun key ->
           let #((), key) =
             Capsule.Expert.Key.access key ~f:(fun access ->
                 let value = Capsule.Data.unwrap ~access t.msg in
                 value := Some msg)
           in
-          Mutex.Condition.signal t.cond;
-          let key = Mutex.Condition.wait await t.cond ~lock:t.mutex key in
+          Mutex.Condition.signal global_cond;
+          let key =
+            Mutex.Condition.wait await global_cond ~lock:global_mutex key
+          in
           Capsule.Expert.Key.access key ~f:(fun access ->
               assert (!(Capsule.Data.unwrap ~access t.msg) = None)))
       [@nontail])
 
 let recv_clear t =
   Await_blocking.with_await Terminator.never ~f:(fun await ->
-      (Mutex.with_key await t.mutex ~f:(fun key ->
+      (Mutex.with_key await global_mutex ~f:(fun key ->
            let #(value, key) =
              let rec loop key =
                let #(value, key) =
@@ -66,7 +61,8 @@ let recv_clear t =
                match value.aliased with
                | None ->
                    let key =
-                     Mutex.Condition.wait await t.cond ~lock:t.mutex key
+                     Mutex.Condition.wait await global_cond ~lock:global_mutex
+                       key
                    in
                    loop key
                | Some value -> #({ Modes.Aliased.aliased = value }, key)
@@ -77,7 +73,7 @@ let recv_clear t =
              Capsule.Expert.Key.access key ~f:(fun access ->
                  Capsule.Data.unwrap ~access t.msg := None)
            in
-           Mutex.Condition.signal t.cond;
+           Mutex.Condition.signal global_cond;
            #(value, key)))
         .aliased)
 
@@ -124,3 +120,13 @@ let merge :
           let data = !(Capsule.Data.unwrap ~access t.data) in
           let within = Capsule.Data.unwrap ~access within.data in
           within := f data !within))
+
+let protect_capsule (capsule : ('a, k) Capsule.Data.t) ~(f : 'a -> 'b) :
+    ('b : immutable_data) =
+  let { Modes.Aliased.aliased; _ } =
+    Await_blocking.with_await Terminator.never ~f:(fun await ->
+        Mutex.with_access await global_mutex ~f:(fun access ->
+            let data = Capsule.Data.unwrap ~access capsule in
+            { Modes.Aliased.aliased = f data }))
+  in
+  aliased

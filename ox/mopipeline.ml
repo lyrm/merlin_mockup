@@ -16,7 +16,7 @@ let process shared config =
         Motyper.{ config; typedtree })
   in
   prerr_endline "Typer: evals got";
-  let result = Motyper.run evals defs config;
+  let result = Motyper.run evals defs config in
   prerr_endline "Typer: typer has ran";
   Shared.merge evals ~within:shared ~f:(fun evals _ ->
       { source = config.source; raw_def; defs; evals })
