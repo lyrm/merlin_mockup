@@ -6,7 +6,7 @@ type mutex = k Mutex.t
 
 type 'a t : value mod contended portable = {
   msg : (Msg.t option ref, Lock.k) Capsule.Data.t;
-  data : ('a option ref, Lock.k) Capsule.Data.t;
+  data : ('a ref, Lock.k) Capsule.Data.t;
   mutex : mutex;
   cond : Lock.k Mutex.Condition.t;
 }
@@ -16,8 +16,8 @@ type 'a t : value mod contended portable = {
 let global_mutex = Lock.mutex
 let global_cond = Mutex.Condition.create ()
 
-let create () =
-  let data = Capsule.Data.create (fun () -> (ref None, ref None)) in
+let create f =
+  let data = Capsule.Data.create (fun () -> (ref None, ref (f ()))) in
   {
     msg = Capsule.Data.fst data;
     data = Capsule.Data.snd data;
@@ -84,22 +84,13 @@ let recv_clear t =
 let apply t ~(f : _ -> _ -> ('b : immutable_data)) =
   let { Modes.Aliased.aliased; _ } =
     Await_blocking.with_await Terminator.never ~f:(fun await ->
-        Mutex.with_key await global_mutex ~f:(fun key ->
-            Capsule.Expert.Key.access key ~f:(fun access ->
-                let pipeline = Capsule.Data.unwrap ~access t.data in
-                let msg = Capsule.Data.unwrap ~access t.msg in
-                let result = f !msg !pipeline in
-                { Modes.Aliased.aliased = result })))
+        Mutex.with_access await global_mutex ~f:(fun access ->
+            let pipeline = Capsule.Data.unwrap ~access t.data in
+            let msg = Capsule.Data.unwrap ~access t.msg in
+            let result = f !msg !pipeline in
+            { Modes.Aliased.aliased = result }))
   in
   aliased
-
-(* let set t ~f =
-  Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await t.mutex ~f:(fun key ->
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              let data = Capsule.Data.unwrap ~access t.data in
-              let msg = Capsule.Data.unwrap ~access t.msg in
-              data := f !msg !data))) *)
 
 let map t ~f =
   let data =
@@ -116,34 +107,20 @@ let map t ~f =
 let apply_with_capsule capsule t ~(f : _ -> _ -> _ -> ('c : immutable_data)) =
   let { Modes.Aliased.aliased; _ } =
     Await_blocking.with_await Terminator.never ~f:(fun await ->
-        Mutex.with_key await global_mutex ~f:(fun key ->
-            Capsule.Expert.Key.access key ~f:(fun access ->
-                let msg = Capsule.Data.unwrap ~access t.msg in
-                let capsule = Capsule.Data.unwrap ~access capsule in
-                let within = Capsule.Data.unwrap ~access t.data in
-                { Modes.Aliased.aliased = f !msg capsule !within })))
+        Mutex.with_access await global_mutex ~f:(fun access ->
+            let msg = Capsule.Data.unwrap ~access t.msg in
+            let capsule = Capsule.Data.unwrap ~access capsule in
+            let within = Capsule.Data.unwrap ~access t.data in
+            { Modes.Aliased.aliased = f !msg capsule !within }))
   in
   aliased
 
 let merge :
     ('a : value mod portable) ('b : value mod portable).
-    'a t ->
-    within:'b t ->
-    f:('a option -> 'b option -> 'b option) @ portable ->
-    unit =
+    'a t -> within:'b t -> f:('a -> 'b -> 'b) @ portable -> unit =
  fun t ~within ~f ->
   Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await global_mutex ~f:(fun key ->
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              let data = !(Capsule.Data.unwrap ~access t.data) in
-              let within = Capsule.Data.unwrap ~access within.data in
-              within := f data !within)))
-
-(* let iter_with capsule t ~f =
-  Await_blocking.with_await Terminator.never ~f:(fun await ->
-      Mutex.with_key await global_mutex ~f:(fun key ->
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              let capsule = Capsule.Data.unwrap ~access capsule in
-              let within = Capsule.Data.unwrap ~access t.data in
-              let msg = Capsule.Data.unwrap ~access t.msg in
-              within := Some (f !msg capsule !within)))) *)
+      Mutex.with_access await global_mutex ~f:(fun access ->
+          let data = !(Capsule.Data.unwrap ~access t.data) in
+          let within = Capsule.Data.unwrap ~access within.data in
+          within := f data !within))
