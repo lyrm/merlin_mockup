@@ -11,16 +11,15 @@ let process shared config =
     List.map Moparser_wrapper.lexer raw_def
     |> List.map Moparser_wrapper.parse_def
   in
-  let evals : Motyper.result Shared.t =
-    Shared.create_from shared Motyper.res ~f:(fun r ->
-        Some Motyper.{ config; typedtree = r })
+  let evals =
+    Shared.create_from shared Motyper.res ~f:(fun typedtree ->
+        Motyper.{ config; typedtree })
   in
   prerr_endline "Typer: evals got";
-  Motyper.run evals defs config;
+  let result = Motyper.run evals defs config in
   prerr_endline "Typer: typer has ran";
-
   Shared.merge evals ~within:shared ~f:(fun evals _ ->
-      Some { source = config.source; raw_def; defs; evals = Option.get evals })
+      { source = config.source; raw_def; defs; evals })
 
 (* let rec handle = function
       | Motyper.Eff.Value evals -> evals

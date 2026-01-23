@@ -1,6 +1,9 @@
 open Moconfig
 
-type result = { config : Moconfig.t; typedtree : (string * int) list ref }
+[@@@warning "-37-32"]
+
+type typedtree = (string * int) list ref
+type result = { config : Moconfig.t; typedtree : typedtree }
 
 exception Cancel_or_closing
 exception Exception_after_partial of exn
@@ -19,7 +22,7 @@ type _ res =
       -> (result * (string * int) list * (string * Moparser.expr) list) res
   | Complete : result res
 
-let res : ((string * int) list ref, Shared.k) Capsule.Data.t =
+let res : (typedtree, Shared.k) Capsule.Data.t =
   Capsule.Data.create (fun () -> ref [])
 
 type state =
@@ -43,9 +46,6 @@ let type_structure (shared : result Shared.t) env ~until defs =
               let v, e = Moparser_wrapper.eval env def in
               prerr_endline "eval current item";
               prerr_endline "add evaluated items";
-              let res =
-                match res with None -> assert false | Some res -> res
-              in
               res.typedtree := (v, e) :: !(res.typedtree);
               Rest (rest, (v, e))
           | None, [] -> Finish)
@@ -75,10 +75,10 @@ let type_implementation shared defs config =
 
 let reset_typer_state shared =
   let open! Await in
-  Shared.apply shared ~f:(fun _ -> function
-    | None -> () | Some result -> result.typedtree := [])
+  Shared.apply shared ~f:(fun _ result -> result.typedtree := [])
 
-let run shared defs config =
+let run config parsedtree shared =
+  (* let p = Shared.apply shared ~f:(fun _ -> res) in *)
   reset_typer_state shared;
   prerr_endline "reset typer state";
   type_implementation shared defs config

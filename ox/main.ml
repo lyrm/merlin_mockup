@@ -19,7 +19,7 @@ let run shared config =
   run_analysis shared config *)
 
 let () =
-  let shared = Shared.create () in
+  let shared = Shared.create (fun () -> None) in
   let counter = Atomic.make 0 in
   let ( let* ) spawn_result f =
     match spawn_result with
@@ -35,15 +35,9 @@ let () =
             prerr_endline req.source;
             run shared req;
             prerr_endline "Ran";
-            let resp =
-              Shared.apply shared ~f:(fun _ -> function None -> failwith "No result"
-              | Some Mopipeline.{evals;_} ->
+            Shared.apply shared ~f:(fun _ { Mopipeline.evals; _ } ->
                 let res = Motyper.(evals.typedtree) in
-                Moparser_wrapper.to_string
-                  (ref (List.rev !res)))
-            in
-            prerr_endline @@ "Respond: " ^ resp;
-            resp);
+                Moparser_wrapper.to_string (ref (List.rev !res))));
         Shared.send_and_wait shared (Msg `Closing);
         Atomic.incr counter)
       ()
