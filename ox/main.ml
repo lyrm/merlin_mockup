@@ -10,7 +10,7 @@ open! Await
           pipeline.evals := save)) *)
 
 (** [New_merlin.run] ou [New_commands.run] *)
-let run config shared =
+let run config (shared : Mopipeline.t option Shared.t) =
   Shared.send_and_wait shared (Msg `Cancel);
   prerr_endline "Main: send cancel";
   Mopipeline.get config shared
@@ -35,7 +35,8 @@ let () =
             prerr_endline req.source;
             run req shared;
             prerr_endline "Ran";
-            Shared.apply shared ~f:(fun _ { Mopipeline.evals; _ } ->
+            Shared.apply shared ~f:(fun _ pipeline ->
+                let evals = (Option.get pipeline).Mopipeline.result in
                 let res = Motyper.(evals.typedtree) in
                 Moparser_wrapper.to_string (ref (List.rev !res))));
         Shared.send_and_wait shared (Msg `Closing);

@@ -35,21 +35,21 @@ let type_structure (shared : typedtree Shared.t) env ~until parsedtree =
     let typer_state =
       Shared.apply shared ~f:(fun msg res ->
           match (msg, ldefs) with
-          | Some (Msg `Closing), _ -> raise Cancel_or_closing
-          | Some (Msg `Cancel), _ -> raise Cancel_or_closing
-          | Some (Config _), _ ->
+          | Msg `Closing, _ -> raise Cancel_or_closing
+          | Msg `Cancel, _ -> raise Cancel_or_closing
+          | Config _, _ ->
               failwith "Unexpected message in type_structure : config"
-          | Some Partial_is_available, _ ->
+          | Partial_is_available, _ ->
               failwith "Unexpected message in type_structure : partial"
-          | Some (Msg (`Exn _)), _ ->
+          | Msg (`Exn _), _ ->
               failwith "Unexpected message in type_structure : exn"
-          | None, def :: rest ->
+          | Empty, def :: rest ->
               let v, e = Moparser_wrapper.eval_item env def in
               prerr_endline "eval current item";
               prerr_endline "add evaluated items";
               res := (v, e) :: !res;
               Rest (rest, (v, e))
-          | None, [] -> Finish)
+          | Empty, [] -> Finish)
     in
     match typer_state with
     | Finish ->

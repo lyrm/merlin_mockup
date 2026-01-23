@@ -4,13 +4,13 @@ type t = {
   result : Motyper.result;
 }
 
-let process config shared =
+let process config (shared : t option Shared.t) =
   let parsedtree = Moparser_wrapper.parse config.Moconfig.source in
   prerr_endline "Typer: evals got";
   let evals = Motyper.run config shared parsedtree in
   prerr_endline "Typer: typer has ran";
   Shared.merge evals ~within:shared ~f:(fun result _ ->
-      { source = config.source; parsedtree; result })
+      Some { source = config.source; parsedtree; result })
 
 (* let rec handle = function
       | Motyper.Eff.Value evals -> evals
@@ -39,7 +39,7 @@ let get cfg shared =
   | _ -> failwith "Unexpected message"
 
 (** Anciennement [domain_typer] *)
-let typer shared =
+let typer (shared : t option Shared.t) =
   let rec loop () =
     try
       prerr_endline "Typer: looping";

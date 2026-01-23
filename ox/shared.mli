@@ -19,7 +19,7 @@ val map : 'a t -> f:('a -> 'b) @ portable -> 'b t
     and message. *)
 
 val apply :
-  ('b : immutable_data). 'a t -> f:(Msg.t option -> 'a -> 'b) @ portable -> 'b
+  ('b : immutable_data). 'a t -> f:(Msg.t -> 'a -> 'b) @ portable -> 'b
 (** [apply t ~f] applies [f] to the message and data inside [t] under the
     protection of its mutex and returns the result. *)
 
@@ -31,7 +31,7 @@ val apply_with_capsule :
   ('c : immutable_data) ('b : value mod portable).
   ('a ref, k) Capsule_expert.Data.t ->
   'b t ->
-  f:(Msg.t option -> 'a ref -> 'b -> 'c) @ portable ->
+  f:(Msg.t -> 'a ref -> 'b -> 'c) @ portable ->
   'c
 (** [apply_with_capsule c t ~f] applies [f] to the content of [c] and [within]'s
     message and data under the protection of [within]'s mutex. It returns the
