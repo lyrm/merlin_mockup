@@ -1,22 +1,20 @@
 open! Await
 
 (** [Query_commands.run] et [Query_commands.run_analysis] *)
-(* let run_analysis shared _config =
-  Shared.protected_apply shared (fun _msg ->
-      Option.iter (fun pipeline ->
-          let evals = pipeline.Mopipeline.evals in
-          let save = !evals in
-          Moparser_wrapper.rename evals;
-          pipeline.evals := save)) *)
+let run_analysis shared _config =
+  Shared.apply shared ~f:(fun _ pipeline ->
+      let typedtree = (Option.get pipeline).Mopipeline.result.typedtree in
+      let save = !typedtree in
+      Moparser_wrapper.rename typedtree;
+      typedtree := save)
 
 (** [New_merlin.run] ou [New_commands.run] *)
 let run config (shared : Mopipeline.t option Shared.t) =
   Shared.send_and_wait shared (Msg `Cancel);
   prerr_endline "Main: send cancel";
-  Mopipeline.get config shared
-
-(* ;
-  run_analysis shared config *)
+  Mopipeline.get config shared;
+  run_analysis shared config;
+  prerr_endline "analysis ran"
 
 let () =
   let shared = Shared.create (fun () -> None) in

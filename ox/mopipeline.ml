@@ -6,27 +6,22 @@ type t = {
 
 let process config (shared : t option Shared.t) =
   let parsedtree = Moparser_wrapper.parse config.Moconfig.source in
-  prerr_endline "Typer: evals got";
-  let evals = Motyper.run config shared parsedtree in
-  prerr_endline "Typer: typer has ran";
-  Shared.merge evals ~within:shared ~f:(fun result _ ->
-      Some { source = config.source; parsedtree; result })
-
-(* let rec handle = function
-      | Motyper.Eff.Value evals -> evals
-      | Exception exn -> raise exn
-      | Operation (Partial (Run _), k) ->
-          Shared.send_and_wait shared Partial_is_available;
-          handle (Effect.continue k () [])
-      | Operation (Partial (TI _), _) -> assert false
-    in
+  let rec handle = function
+    | Motyper.Eff.Value evals -> evals
+    | Exception exn -> raise exn
+    | Operation (Partial Run, k) ->
+        Shared.send_and_wait shared Partial_is_available;
+        handle (Effect.continue k () [])
+    | Operation (Partial Type_implem, _) -> assert false
+  in
+  let typer_result =
     handle
       (Motyper.Eff.run (fun handler ->
-           let raw_def = Moparser.buffer_to_words config.Moconfig.source in
-           let defs =
-             List.map Moparser.lexer raw_def |> List.map Moparser.parse_def
-           in
-           Motyper.run handler shared defs config)) *)
+           Motyper.run config shared ~handler parsedtree))
+  in
+  prerr_endline "Typer: typer has ran";
+  Shared.merge typer_result ~within:shared ~f:(fun result _ ->
+      Some { source = config.source; parsedtree; result })
 
 let get cfg shared =
   Shared.send_and_wait shared (Config cfg);
@@ -39,7 +34,7 @@ let get cfg shared =
   | _ -> failwith "Unexpected message"
 
 (** Anciennement [domain_typer] *)
-let typer (shared : t option Shared.t) =
+let typer shared =
   let rec loop () =
     try
       prerr_endline "Typer: looping";

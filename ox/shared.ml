@@ -83,8 +83,23 @@ let send_and_wait t msg =
           let key =
             Mutex.Condition.wait await global_cond ~lock:global_mutex key
           in
-          Capsule.Expert.Key.access key ~f:(fun access ->
-              assert (!(Capsule.Data.unwrap ~access t.msg) = Empty)))
+
+          let rec loop key =
+            let #(msg, key) =
+              Capsule.Expert.Key.access key ~f:(fun access ->
+                  {
+                    Modes.Aliased.aliased = !(Capsule.Data.unwrap ~access t.msg);
+                  })
+            in
+            match msg.aliased with
+            | Empty -> #((), key)
+            | _ ->
+                let key =
+                  Mutex.Condition.wait await global_cond ~lock:global_mutex key
+                in
+                loop key
+          in
+          loop key [@nontail])
       [@nontail])
 
 let recv_clear t =

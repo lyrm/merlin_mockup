@@ -7,4 +7,14 @@ type result = { config : Moconfig.t; typedtree : typedtree }
 exception Cancel_or_closing
 exception Exception_after_partial of exn
 
-val run : Moconfig.t -> _ Shared.t -> parsedtree -> result Shared.t
+type partial = Type_implem | Run
+type _ eff = Partial : partial -> unit eff
+
+module Eff : Effect.S with type ('a, 'e) ops := 'a eff
+
+val run :
+  Moconfig.t ->
+  _ Shared.t ->
+  handler:local_ Eff.t Effect.Handler.t ->
+  parsedtree ->
+  result Shared.t

@@ -1,7 +1,5 @@
 open Moconfig
 
-[@@@warning "-37-32"]
-
 type parsedtree = (string * Moparser.expr) list
 type typedtree = (string * int) list ref
 type result = { config : Moconfig.t; typedtree : typedtree }
@@ -10,30 +8,26 @@ exception Cancel_or_closing
 exception Exception_after_partial of exn
 
 (* In mtyper.ml, type_structure, type_implementation and run returns different types*)
-type partial = TI of result | Run of result
+type partial = Type_implem | Run
 type _ eff = Partial : partial -> unit eff
 
 module Eff = Effect.Make (struct
   type 'a t = 'a eff
 end)
 
-type _ res =
-  | Partial :
-      int
-      -> (result * (string * int) list * (string * Moparser.expr) list) res
-  | Complete : result res
+type env = (string * int) list (* TODO: remove this *)
+type _ res = Partial : int -> (env * parsedtree) res | Complete : unit res
 
 let res : (typedtree, Shared.k) Capsule.Data.t =
   Capsule.Data.create (fun () -> ref [])
 
-type state =
-  | Finish
-  | Rest of (string * Moparser_wrapper.expr) list * (string * int)
+type state = Finish | Rest of Moparser.parsedtree * Moparser.typed_item
 
-let type_structure (shared : typedtree Shared.t) env ~until parsedtree =
-  let rec loop until env count ldefs =
+let type_structure ~until typedtree env parsedtree =
+  let rec loop : type a. a res -> env -> int -> parsedtree -> a =
+   fun until env count ldefs ->
     let typer_state =
-      Shared.apply shared ~f:(fun msg res ->
+      Shared.apply typedtree ~f:(fun msg res ->
           match (msg, ldefs) with
           | Msg `Closing, _ -> raise Cancel_or_closing
           | Msg `Cancel, _ -> raise Cancel_or_closing
@@ -45,39 +39,51 @@ let type_structure (shared : typedtree Shared.t) env ~until parsedtree =
               failwith "Unexpected message in type_structure : exn"
           | Empty, def :: rest ->
               let v, e = Moparser_wrapper.eval_item env def in
-              prerr_endline "eval current item";
-              prerr_endline "add evaluated items";
               res := (v, e) :: !res;
               Rest (rest, (v, e))
           | Empty, [] -> Finish)
     in
-    match typer_state with
-    | Finish ->
-        prerr_endline "finish";
-        (* (match until with Partial _ -> (res, env, []) | Complete -> res) *)
-        ()
-    | Rest (rest, (v, e)) ->
+    match (typer_state, until) with
+    | Finish, Partial _ -> (env, [])
+    | Finish, Complete -> ()
+    | Rest (rest, (v, e)), Partial i when i = count -> ((v, e) :: env, rest)
+    | Rest (rest, (v, e)), _ ->
         List.init 50 (fun _ -> Random.int 100)
         |> List.fold_left ( + ) 0 |> ignore;
-        prerr_endline "loop";
         loop until ((v, e) :: env) (count + 1) rest
-    (* (match until with
-        | Partial i when i = count -> (res, (v, e) :: env, rest)
-        | _ ->
-            Utils.stupid_work () |> ignore;
-            loop until ((v, e) :: env) (count + 1) rest) *)
   in
   loop until env 0 parsedtree
 
-let type_implementation config shared parsedtree =
+let type_implementation config ~handler typedtree parsedtree =
   match config.completion with
-  | All -> type_structure ~until:Complete shared [] parsedtree
-  | Part _ -> assert false
+  | All -> type_structure ~until:Complete typedtree [] parsedtree
+  | Part i -> begin
+      let env, rest =
+        type_structure ~until:(Partial i) typedtree [] parsedtree
+      in
+      Eff.perform handler (Partial Type_implem);
+      (* Suffix processing: *)
+      try type_structure ~until:Complete typedtree env rest with
+      | Cancel_or_closing -> raise Cancel_or_closing
+      | exn -> raise (Exception_after_partial exn)
+    end
 
 let reset_typer_state () = Shared.protect_capsule res ~f:(fun res -> res := [])
 
-let run config shared parsedtree =
+let run config shared ~(handler : _ @ local) parsedtree =
   reset_typer_state ();
-  let typedtree = Shared.create_from shared res ~f:(fun x -> x) in
-  type_implementation config typedtree parsedtree;
-  Shared.map typedtree ~f:(fun typedtree -> { config; typedtree })
+  let result = Shared.create_from shared res ~f:Fun.id in
+  let rec handle = function
+    | Eff.Value x -> x
+    | Exception exn -> raise exn
+    | Operation (Partial Type_implem, k) ->
+        Eff.perform handler (Partial Run);
+        handle (Effect.continue k () [ handler ])
+    | Operation (Partial Run, k) -> handle (Effect.continue k () [ handler ])
+  in
+  let _ =
+    handle
+      (Eff.run_with [ handler ] (fun [ handler; _ ] ->
+           type_implementation config ~handler result parsedtree))
+  in
+  Shared.map result ~f:(fun typedtree -> { config; typedtree })
