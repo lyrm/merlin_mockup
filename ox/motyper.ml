@@ -81,9 +81,7 @@ let run config shared ~(handler : _ @ local) parsedtree =
         handle (Effect.continue k () [ handler ])
     | Operation (Partial Run, k) -> handle (Effect.continue k () [ handler ])
   in
-  let _ =
-    handle
-      (Eff.run_with [ handler ] (fun [ handler; _ ] ->
-           type_implementation config ~handler result parsedtree))
-  in
+  handle
+    (Eff.run_with [ handler ] (fun [ handler; _ ] ->
+         type_implementation config ~handler result parsedtree));
   Shared.map result ~f:(fun typedtree -> { config; typedtree })
