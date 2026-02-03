@@ -80,6 +80,9 @@ let send_and_wait t msg =
                 value := msg)
           in
           Mutex.Condition.signal global_cond;
+          let key =
+            Mutex.Condition.wait await global_cond ~lock:global_mutex key
+          in
           let rec loop key =
             let #(msg, key) =
               Capsule.Expert.Key.access key ~f:(fun access ->

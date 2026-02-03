@@ -43,8 +43,13 @@ let typer shared =
           prerr_endline "Typer: received config";
           let () = process config shared in
           prerr_endline "Typer: pipeline processed";
-          Shared.send_and_wait shared Partial_is_available;
-          prerr_endline "Typer: partial is available";
+          let () =
+            match config.Moconfig.completion with
+            | All ->
+                prerr_endline "Typer: partial is available";
+                Shared.send_and_wait shared Partial_is_available
+            | _ -> (* Partial message is already shared. *) ()
+          in
           loop ()
       | Msg `Closing -> ()
       | Msg `Cancel -> loop ()

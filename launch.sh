@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+killall main.exe
+
 _build/default/ox/main.exe& # Launch server
 PID=$!
 
