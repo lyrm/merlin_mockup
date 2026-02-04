@@ -1,4 +1,3 @@
 (library
- (public_name merlin_mockup)
  (name moparser)
- (libraries unix))
+ (package merlin-mockup))
