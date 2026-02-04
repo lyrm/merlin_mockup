@@ -1,26 +1,14 @@
-(lang dune 3.0)
+(lang dune 3.21)
 
-(name merlin_mockup)
+(name merlin-mockup)
 
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github lyrm/merlin_mockup))
 
-(authors "Carine Morel")
-
-(maintainers "Carine Morel")
-
-(license LICENSE)
-
-(documentation https://url/to/documentation)
+(authors "Carine Morel" "Timéo Arnouts")
 
 (package
- (name merlin_mockup)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml dune)
- (tags
-  (topics "to describe" your project)))
-
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project
+ (name merlin-mockup)
+ (depends ocaml dune parallel handled_effect))

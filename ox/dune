@@ -1,6 +1,8 @@
 (executable
  (name merlin_mockup)
- (modules_without_implementation msg)
+ (public_name merlin-mockup)
+ (package merlin-mockup)
+ (modules_without_implementation moconfig msg)
  (libraries
   moparser
   await
