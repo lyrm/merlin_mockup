@@ -1,9 +1,10 @@
 (executable
- (name main)
+ (name merlin_mockup)
+ (modules_without_implementation msg)
  (libraries
   moparser
   await
   basement
   parallel
   parallel.scheduler
-  oxcaml_effect))
+  handled_effect))

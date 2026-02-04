@@ -6,5 +6,5 @@ type t = {
   result : Motyper.result;
 }
 
-val get : Moconfig.t -> t option Shared.t -> unit
-val typer : t option Shared.t -> unit
+val get : Moconfig.t -> t option Hermes.t -> unit
+val typer : t option Hermes.t -> unit

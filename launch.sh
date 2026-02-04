@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-killall main.exe
+killall merlin_mockup.exe
 
-_build/default/ox/main.exe& # Launch server
+_build/default/ox/merlin_mockup.exe& # Launch server
 PID=$!
 
 sleep 0.1

@@ -4,29 +4,29 @@ type t = {
   result : Motyper.result;
 }
 
-let process config (shared : t option Shared.t) =
+let process config (hermes : t option Hermes.t) =
   let parsedtree = Moparser_wrapper.parse config.Moconfig.source in
   let rec handle = function
     | Motyper.Eff.Value evals -> evals
     | Exception exn -> raise exn
     | Operation (Partial Run, k) ->
-        Shared.send_and_wait shared Partial_is_available;
-        handle (Effect.continue k () [])
+        Hermes.send_and_wait hermes Partial_is_available;
+        handle (Handled_effect.continue k () [])
     | Operation (Partial Type_implem, _) -> assert false
   in
   let typer_result =
     handle
       (Motyper.Eff.run (fun handler ->
-           Motyper.run config shared ~handler parsedtree))
+           Motyper.run config hermes ~handler parsedtree))
   in
   prerr_endline "Typer: typer has ran";
-  Shared.merge typer_result ~within:shared ~f:(fun result _ ->
+  Hermes.merge typer_result ~within:hermes ~f:(fun result _ ->
       Some { source = config.source; parsedtree; result })
 
-let get cfg shared =
-  Shared.send_and_wait shared (Config cfg);
+let get cfg hermes =
+  Hermes.send_and_wait hermes (Config cfg);
   prerr_endline "Main: send config";
-  match Shared.recv_clear shared with
+  match Hermes.recv_clear hermes with
   | Partial_is_available ->
       prerr_endline "Main: partial is available !";
       ()
@@ -34,20 +34,20 @@ let get cfg shared =
   | _ -> failwith "Unexpected message"
 
 (** Anciennement [domain_typer] *)
-let typer shared =
+let typer hermes =
   let rec loop () =
     try
       prerr_endline "Typer: looping";
-      match Shared.recv_clear shared with
+      match Hermes.recv_clear hermes with
       | Config config ->
           prerr_endline "Typer: received config";
-          let () = process config shared in
+          let () = process config hermes in
           prerr_endline "Typer: pipeline processed";
           let () =
             match config.Moconfig.completion with
             | All ->
                 prerr_endline "Typer: partial is available";
-                Shared.send_and_wait shared Partial_is_available
+                Hermes.send_and_wait hermes Partial_is_available
             | _ -> (* Partial message is already shared. *) ()
           in
           loop ()
@@ -57,7 +57,7 @@ let typer shared =
     with
     | Motyper.(Cancel_or_closing | Exception_after_partial _) -> loop ()
     | exn ->
-        Shared.send_and_wait shared (Msg (`Exn exn));
+        Hermes.send_and_wait hermes (Msg (`Exn exn));
         loop ()
   in
   loop ()

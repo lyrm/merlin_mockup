@@ -11,14 +11,14 @@ exception Exception_after_partial of exn
 type partial = Type_implem | Run
 type _ eff = Partial : partial -> unit eff
 
-module Eff = Effect.Make (struct
+module Eff = Handled_effect.Make (struct
   type 'a t = 'a eff
 end)
 
 type env = (string * int) list (* TODO: remove this *)
 type _ res = Partial : int -> (env * parsedtree) res | Complete : unit res
 
-let res : (typedtree, Shared.k) Capsule.Data.t =
+let res : (typedtree, Hermes.k) Capsule.Data.t =
   Capsule.Data.create (fun () -> ref [])
 
 type state = Finish | Rest of Moparser.parsedtree * Moparser.typed_item
@@ -27,7 +27,7 @@ let type_structure ~until typedtree env parsedtree =
   let rec loop : type a. a res -> env -> int -> parsedtree -> a =
    fun until env count ldefs ->
     let typer_state =
-      Shared.apply typedtree ~f:(fun msg res ->
+      Hermes.apply typedtree ~f:(fun msg res ->
           match (msg, ldefs) with
           | Msg `Closing, _ -> raise Cancel_or_closing
           | Msg `Cancel, _ -> raise Cancel_or_closing
@@ -68,20 +68,21 @@ let type_implementation config ~handler typedtree parsedtree =
       | exn -> raise (Exception_after_partial exn)
     end
 
-let reset_typer_state () = Shared.protect_capsule res ~f:(fun res -> res := [])
+let reset_typer_state () = Hermes.protect_capsule res ~f:(fun res -> res := [])
 
-let run config shared ~(handler : _ @ local) parsedtree =
+let run config hermes ~(handler @ local) parsedtree =
   reset_typer_state ();
-  let result = Shared.create_from shared res ~f:Fun.id in
+  let result = Hermes.create_from hermes res ~f:Fun.id in
   let rec handle = function
     | Eff.Value x -> x
     | Exception exn -> raise exn
     | Operation (Partial Type_implem, k) ->
         Eff.perform handler (Partial Run);
-        handle (Effect.continue k () [ handler ])
-    | Operation (Partial Run, k) -> handle (Effect.continue k () [ handler ])
+        handle (Handled_effect.continue k () [ handler ])
+    | Operation (Partial Run, k) ->
+        handle (Handled_effect.continue k () [ handler ])
   in
   handle
     (Eff.run_with [ handler ] (fun [ handler; _ ] ->
          type_implementation config ~handler result parsedtree));
-  Shared.map result ~f:(fun typedtree -> { config; typedtree })
+  Hermes.map result ~f:(fun typedtree -> { config; typedtree })

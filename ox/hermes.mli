@@ -1,5 +1,7 @@
 @@ portable
 
+(** Hermes: a message passing data structure associated with a capsule. *)
+
 open! Await
 
 type 'a t : value mod contended portable
@@ -11,7 +13,7 @@ val send_and_wait : 'a t -> Msg.t -> unit
 val recv_clear : 'a t -> Msg.t
 
 val create_from :
-  'a t -> ('b, k) Capsule_expert.Data.t -> f:('b -> 'c) @ portable -> 'c t
+  'a t -> ('b, k) Capsule.Data.t -> f:('b -> 'c) @ portable -> 'c t
 
 val map : 'a t -> f:('a -> 'b) @ portable -> 'b t
 (** [map t ~f] applies [f] to the data inside [t] under the protection of its
@@ -29,7 +31,7 @@ val apply :
 
 val apply_with_capsule :
   ('c : immutable_data) ('b : value mod portable).
-  ('a ref, k) Capsule_expert.Data.t ->
+  ('a ref, k) Capsule.Data.t ->
   'b t ->
   f:(Msg.t -> 'a ref -> 'b -> 'c) @ portable ->
   'c

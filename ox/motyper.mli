@@ -10,11 +10,11 @@ exception Exception_after_partial of exn
 type partial = Type_implem | Run
 type _ eff = Partial : partial -> unit eff
 
-module Eff : Effect.S with type ('a, 'e) ops := 'a eff
+module Eff : Handled_effect.S with type ('a, 'e) ops := 'a eff
 
 val run :
   Moconfig.t ->
-  _ Shared.t ->
-  handler:local_ Eff.t Effect.Handler.t ->
+  _ Hermes.t ->
+  handler:local_ Eff.t Handled_effect.Handler.t ->
   parsedtree ->
-  result Shared.t
+  result Hermes.t
