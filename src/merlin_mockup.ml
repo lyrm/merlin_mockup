@@ -16,7 +16,7 @@ let main () =
   Utils.log 0 "Spawning typer";
 
   let domain_typer = Domain.spawn (fun () -> Mopipeline.domain_typer shared) in
-  Server.listen ~socket_fname:Sys.argv.(1) ~handle:(fun req ->
+  Server.listen ~handle:(fun req ->
       run shared req;
       let res = !Motyper.res |> List.rev in
       Motool_parser.to_string (ref res));
