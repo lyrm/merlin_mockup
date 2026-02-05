@@ -21,7 +21,9 @@ let () =
         Server.listen ~handle:(fun req ->
             run req hermes;
             Hermes.apply hermes ~f:(fun _ pipeline ->
-                let evals = (Option.get pipeline).Mopipeline.result in
+                let evals = match pipeline with 
+                | None -> failwith "No pipeline found (main)"
+                | Some p -> p.Mopipeline.result in
                 let res = Motyper.(evals.typedtree) in
                 Moparser_wrapper.to_string (ref (List.rev !res))));
         Hermes.send_and_wait hermes (Msg `Closing);

@@ -9,8 +9,10 @@ let process config (hermes : t option Hermes.t) =
   let rec handle = function
     | Motyper.Eff.Value evals -> evals
     | Exception exn -> raise exn
-    | Operation (Partial Run, k) ->
+    | Operation (Partial (Run result), k) ->
         Log.debug 1 "Sharing partial result";
+        Hermes.merge result ~within:hermes ~f:(fun result _ ->
+            Some { source = config.source; parsedtree; result });
         Hermes.send_and_wait hermes Partial_is_available;
         Log.debug 1 "Shared partial result!";
         handle (Handled_effect.continue k () [])
@@ -30,6 +32,10 @@ let get cfg hermes =
   match Hermes.recv_clear hermes with
   | Partial_is_available ->
       Log.debug 0 "Got partial result";
+      Hermes.apply hermes ~f:(fun _ pipeline ->
+          match pipeline with
+          | None -> failwith "No pipeline found (mopipeline get)"
+          | Some p -> ());
       ()
   | Msg (`Exn exn) ->
       Log.debug 0 "Got exception: %s" (Printexc.to_string exn);
@@ -52,7 +58,9 @@ let typer hermes =
           in
           loop ()
       | Msg `Closing -> Log.debug 0 "Closing"
-      | Msg `Cancel -> loop ()
+      | Msg `Cancel ->
+          Log.debug 0 "Cancel";
+          loop ()
       | _ -> failwith "unexpected msg"
     with
     | Motyper.Cancel_or_closing ->
@@ -63,6 +71,7 @@ let typer hermes =
           (Printexc.to_string exn);
         loop ()
     | exn ->
+        Log.debug 0 "Sharing exception: %s" (Printexc.to_string exn);
         Hermes.send_and_wait hermes (Msg (`Exn exn));
         loop ()
   in

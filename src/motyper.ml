@@ -8,7 +8,7 @@ exception Cancel_or_closing
 exception Exception_after_partial of exn
 
 (* In mtyper.ml, type_structure, type_implementation and run returns different types*)
-type partial = Type_implem | Run
+type partial = Type_implem | Run of result Hermes.t
 type _ eff = Partial : partial -> unit eff
 
 module Eff = Handled_effect.Make (struct
@@ -78,11 +78,14 @@ let run config hermes ~(handler @ local) parsedtree =
     | Eff.Value x -> x
     | Exception exn -> raise exn
     | Operation (Partial Type_implem, k) ->
-        Eff.perform handler (Partial Run);
+        let result =
+          Hermes.map result ~f:(fun typedtree -> { config; typedtree })
+        in
+        Eff.perform handler (Partial (Run result));
         handle (Handled_effect.continue k () [ handler ])
-    | Operation (Partial Run, k) ->
-        handle (Handled_effect.continue k () [ handler ])
+    | Operation (Partial _, k) -> assert false
   in
+
   handle
     (Eff.run_with [ handler ] (fun [ handler; _ ] ->
          type_implementation config ~handler result parsedtree));
