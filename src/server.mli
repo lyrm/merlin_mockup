@@ -1,1 +1,1 @@
-val listen : handle:(Moconfig.config -> string) -> unit
+val listen : handle:(Moconfig.t -> string) -> unit

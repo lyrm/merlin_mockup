@@ -1,42 +1,24 @@
-open Debug
-
 (** [run] = New_merlin.run ou New_commands.run *)
 let run =
   let req_count = ref 0 in
-  fun shared config ->
-    Mopipeline.cancel_typer shared;
+  fun config hermes ->
+    Hermes.send_and_wait hermes (Motyper.Msg `Cancel);
     incr req_count;
-    let result = Mopipeline.get shared config in
+    let result = Mopipeline.get config hermes in
     Utils.log 0 "Request nb %i - Beginning analysis" !req_count;
-    Option.iter (fun r -> Moquery_commands.analysis shared r config) result
+    Option.iter (fun r -> Moquery_commands.analysis hermes r config) result;
+    result
 
 (** [main] = Ocaml_merlin_server.main *)
 let main () =
-  let shared = Mopipeline.create_shared () in
+  let hermes = Hermes.create () in
   Utils.log 0 "Spawning typer";
-
-  let domain_typer = Domain.spawn (fun () -> Mopipeline.domain_typer shared) in
+  let domain_typer = Domain.spawn (fun () -> Mopipeline.domain_typer hermes) in
   Server.listen ~handle:(fun req ->
-      run shared req;
-      let res = !Motyper.res |> List.rev in
-      Motool_parser.to_string (ref res));
-  Mopipeline.close_typer shared;
-  Domain.join domain_typer;
-
-  if print_last then begin
-    Utils.log 0 "Last result :";
-    Motool_parser.print (ref (List.rev !Motyper.res))
-  end
-
-(* Clean up the socket once the server is shutdown. *)
-let () =
-  Sys.set_signal Sys.sigint (Signal_handle (fun _ -> Unix.unlink Sys.argv.(1)))
+      let pipeline = run req hermes in
+      let items = (Option.get pipeline).result.typedtree in
+      Moparser.to_string (ref (List.rev !items)));
+  Hermes.send_and_wait hermes (Motyper.Msg `Close);
+  Domain.join domain_typer
 
 let () = main ()
-
-(* Things in Merlin that might not work well
-- ctype
-- src/analysis
-- local_store
-- unify_gadt -> in lock (with snapshot /backtrack around )
-*)

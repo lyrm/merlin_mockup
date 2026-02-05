@@ -6,6 +6,8 @@ bug-reports: "https://github.com/lyrm/merlin_mockup/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.19"}
+  "parallel"
+  "handled_effect"
   "odoc" {with-doc}
 ]
 build: [

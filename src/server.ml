@@ -29,7 +29,9 @@ let listen ~handle =
   let socket =
     Unix.socket ~cloexec:true ~domain:PF_INET ~kind:SOCK_STREAM ~protocol:0
   in
-  let addr = Unix.(ADDR_INET (inet_addr_loopback, 8080)) in
+  Unix.setsockopt socket SO_REUSEADDR true;
+  Unix.setsockopt socket SO_REUSEPORT true;
+  let addr = Unix.(ADDR_INET (inet_addr_loopback, 8453)) in
   Unix.bind socket ~addr;
   Unix.listen socket ~max:5;
   log "server socket is setup";
