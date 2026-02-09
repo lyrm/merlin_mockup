@@ -1,18 +1,8 @@
-open! Await
-
-(** [Query_commands.run] et [Query_commands.run_analysis] *)
-let run_analysis hermes _config =
-  Hermes.apply hermes ~f:(fun _ pipeline ->
-      let typedtree = (Option.get pipeline).Mopipeline.result.typedtree in
-      let save = !typedtree in
-      Moparser_wrapper.rename typedtree;
-      typedtree := save)
-
 (** [New_merlin.run] ou [New_commands.run] *)
 let run config (hermes : Mopipeline.t option Hermes.t) =
   Hermes.send_and_wait hermes (Msg `Cancel);
   Mopipeline.get config hermes;
-  run_analysis hermes config;
+  Moquery_commands.analysis hermes config;
   prerr_endline "analysis ran"
 
 let () =

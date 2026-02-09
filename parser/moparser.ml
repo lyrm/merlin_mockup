@@ -1,5 +1,5 @@
 (*
-  let a = 1 + 2 - 1 
+  let a = 1 + 2 - 1
   let b = a * 10 - a
   let c = b + (4 * a)
 *)
