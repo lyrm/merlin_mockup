@@ -5,4 +5,6 @@ let run_analysis pipeline =
   typedtree := save
 
 let analysis hermes _config =
-  Hermes.apply hermes ~f:(fun _ pipeline -> run_analysis pipeline)
+  Hermes.apply hermes ~f:(fun _ pipeline ->
+      run_analysis pipeline;
+      Log.debug 1 "Analysis ran")

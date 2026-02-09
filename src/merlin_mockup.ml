@@ -1,9 +1,9 @@
 (** [New_merlin.run] ou [New_commands.run] *)
 let run config (hermes : Mopipeline.t option Hermes.t) =
   Hermes.send_and_wait hermes (Msg `Cancel);
+  Log.debug 0 "Start to processing request %S" config.Moconfig.source;
   Mopipeline.get config hermes;
-  Moquery_commands.analysis hermes config;
-  prerr_endline "analysis ran"
+  Moquery_commands.analysis hermes config
 
 let () =
   let hermes = Hermes.create (fun () -> None) in
@@ -19,9 +19,7 @@ let () =
     Multicore.spawn
       (fun () ->
         Server.listen ~handle:(fun req ->
-            prerr_endline req.source;
             run req hermes;
-            prerr_endline "Ran";
             Hermes.apply hermes ~f:(fun _ pipeline ->
                 let evals = (Option.get pipeline).Mopipeline.result in
                 let res = Motyper.(evals.typedtree) in

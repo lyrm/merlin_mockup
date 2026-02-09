@@ -26,6 +26,7 @@ type state = Finish | Rest of Moparser.parsedtree * Moparser.typed_item
 let type_structure ~until typedtree env parsedtree =
   let rec loop : type a. a res -> env -> int -> parsedtree -> a =
    fun until env count ldefs ->
+    Log.debug 1 "Typing defs %d / %d" count (List.length parsedtree);
     let typer_state =
       Hermes.apply typedtree ~f:(fun msg res ->
           match (msg, ldefs) with
