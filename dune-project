@@ -11,4 +11,4 @@
 
 (package
  (name merlin-mockup)
- (depends ocaml dune parallel handled_effect))
+ (depends ocaml dune))
