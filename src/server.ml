@@ -2,13 +2,17 @@ module Unix = UnixLabels
 
 let log fmt = Log.debug 0 ("Server : " ^^ fmt)
 
+type request = Config of Moconfig.t | Close
+type t = Request of request | Bad_request
+
 let parse_request req =
   match String.split_on_char '\n' req with
-  | [ source; "all" ] -> Some { Moconfig.source; completion = All }
+  | [ source; "all" ] -> Request (Config { Moconfig.source; completion = All })
+  | [ source; "close" ] -> Request Close
   | [ source; compl ] ->
-      Scanf.sscanf_opt compl "part %i" Fun.id
-      |> Option.map (fun n -> { Moconfig.source; completion = Part n })
-  | _ -> None
+      Scanf.sscanf_opt compl "part %i" Fun.id |> Option.get |> fun n ->
+      Request (Config { Moconfig.source; completion = Part n })
+  | _ -> Bad_request
 
 let read_request socket =
   let buf = Bytes.create 1000 in
@@ -34,13 +38,15 @@ let listen ~handle =
   Unix.bind socket ~addr;
   Unix.listen socket ~max:5;
   log "listening on localhost:%i" port;
-  try
-    while true do
-      let client, _client_addr = Unix.accept socket in
-      match read_request client |> parse_request with
-      | None -> log "malformed response"
-      | Some req -> respond client (handle req)
-    done;
-    Unix.close socket
-  with Unix.Unix_error (EINTR, _, _) ->
-    log "Interrupted" (* Graceful termination. *)
+  let rec loop () =
+    let client, _client_addr = Unix.accept socket in
+    match read_request client |> parse_request with
+    | Bad_request ->
+        log "malformed response";
+        loop ()
+    | Request req ->
+        respond client (handle req);
+        loop ()
+  in
+  (try loop () with Unix.Unix_error (EINTR, _, _) -> log "Interrupted");
+  Unix.close socket
