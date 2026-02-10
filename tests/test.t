@@ -29,4 +29,4 @@
   Value of "omega" is 327.
   Value of "final_value" is 333.
   
-  $ kill -INT $PID
+  $ kill -KILL $PID

@@ -6,4 +6,4 @@
 
   $ echo -en "./defs/fruits\nall" | nc localhost 8453
 
-  $ kill -INT $PID
+  $ kill -KILL $PID

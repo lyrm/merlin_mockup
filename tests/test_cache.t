@@ -8,4 +8,4 @@
   $ echo -en "./defs/math\npart 20" | nc localhost 8453
   $ echo -en "./defs/math\npart 10" | nc localhost 8453
 
-  $ kill -INT $PID
+  $ kill -KILL $PID

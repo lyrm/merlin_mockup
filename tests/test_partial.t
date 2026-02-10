@@ -6,4 +6,4 @@
 
   $ echo -en "./defs/math\npart 15" | nc localhost 8453
 
-  $ kill -INT $PID
+  $ kill -KILL $PID
