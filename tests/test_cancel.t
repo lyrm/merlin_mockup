@@ -1,15 +1,16 @@
-  $ merlin-mockup > /dev/null 2>&1 &
+  $ merlin-mockup &
+$ merlin-mockup > /dev/null 2>&1 &
   $ PID=$!
   $ sleep 0.1
 
-  $ echo -en "./defs/math\npart 4" | nc localhost 8453
+  $ printf "./defs/math\npart 4" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
   Value of "delta" is 21.
   Value of "epsilon" is 6.
   
-  $ echo -en "./defs/fruits\nall" | nc localhost 8453
+  $ printf "./defs/fruits\nall" | nc localhost 8453
   Value of "apple" is 13.
   Value of "banana" is 12.
   Value of "cherry" is 45.
@@ -36,4 +37,4 @@
   Value of "xigua" is 4279.
   Value of "yellowfruit" is 12721.
   
-  $ kill -INT $PID
+  $ printf '.\nclose' | nc localhost 8453
