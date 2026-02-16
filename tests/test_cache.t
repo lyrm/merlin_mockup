@@ -1,5 +1,4 @@
-  $ merlin-mockup &
-$ merlin-mockup > /dev/null 2>&1 &
+  $ merlin-mockup > /dev/null 2>&1 &
   $ PID=$!
   $ sleep 0.1
 
