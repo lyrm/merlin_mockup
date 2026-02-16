@@ -9,9 +9,11 @@ let parse_request req =
   match String.split_on_char '\n' req with
   | [ source; "all" ] -> Request (Config { Moconfig.source; completion = All })
   | [ source; "close" ] -> Request Close
-  | [ source; compl ] ->
-      Scanf.sscanf_opt compl "part %i" Fun.id |> Option.get |> fun n ->
-      Request (Config { Moconfig.source; completion = Part n })
+  | [ source; compl ] -> begin
+      match Scanf.sscanf_opt compl "part %i" Fun.id with
+      | None -> Bad_request
+      | Some n -> Request (Config { Moconfig.source; completion = Part n })
+    end
   | _ -> Bad_request
 
 let read_request socket =
