@@ -28,7 +28,7 @@ let res : typedtree = ref []
 let type_structure ~until typedtree env parsedtree =
   let rec loop : type a. a res -> env -> int -> parsedtree -> a =
    fun until env count ldefs ->
-    Utils.log 1 "Typing defs %d / %d" count (List.length ldefs);
+    Utils.log 1 "Typing defs %d / %d" count (List.length parsedtree);
 
     let typer_state =
       Hermes.protect typedtree (fun () ->
