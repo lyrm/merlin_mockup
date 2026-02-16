@@ -1,3 +1,5 @@
+exception Closing
+
 (** [New_merlin.run] ou [New_commands.run] *)
 let run config (hermes : Mopipeline.t option Hermes.t) =
   Hermes.send_and_wait hermes (Msg `Cancel);
@@ -18,23 +20,49 @@ let () =
   let* () =
     Multicore.spawn
       (fun () ->
-        Server.listen ~handle:(fun req ->
-            run req hermes;
-            Hermes.apply hermes ~f:(fun _ pipeline ->
-                let evals = (Option.get pipeline).Mopipeline.result in
-                let res = Motyper.(evals.typedtree) in
-                Moparser_wrapper.to_string (ref (List.rev !res))));
-        Hermes.send_and_wait hermes (Msg `Closing);
-        Atomic.incr counter)
+        (try
+           Server.listen ~handle:(fun req ->
+               match req with
+               | Server.Close -> raise Closing
+               | Server.Config config ->
+                   run config hermes;
+                   Hermes.apply hermes ~f:(fun _ pipeline ->
+                       let evals =
+                         match pipeline with
+                         | None -> failwith "No pipeline found (main)"
+                         | Some p -> p.Mopipeline.result
+                       in
+                       let res = Motyper.(evals.typedtree) in
+                       Moparser_wrapper.to_string (ref (List.rev !res))))
+         with
+        | Closing ->
+            Log.debug 0 "Closing requested received.";
+            Hermes.send_and_wait hermes (Msg `Closing)
+        | _ ->
+            Log.debug 0 "Server thread exiting with exception";
+            Hermes.send_and_wait hermes (Msg `Closing));
+        Log.debug 0 "Exiting";
+
+        Atomic.incr counter;
+        Log.debug 0 "counter = %d" (Atomic.get counter))
       ()
   in
+
   let* () =
     Multicore.spawn
       (fun () ->
         Mopipeline.typer hermes;
-        Atomic.incr counter)
+        Log.debug 0 "Exiting.";
+
+        Atomic.incr counter;
+        Log.debug 0 "counter = %d" (Atomic.get counter))
       ()
   in
+
+  (* Waiting for all domains to finish *)
   while Atomic.get counter <> 2 do
-    Domain.cpu_relax ()
-  done
+    Thread.yield ()
+  done;
+  Log.debug 0 "The end"
+
+(* The rest of the file is just a copy of the original merlin.ml, with some minor edits to make it compile *)
