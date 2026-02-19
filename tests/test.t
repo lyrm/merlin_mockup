@@ -2,7 +2,7 @@
   $ PID=$!
   $ sleep 0.1
 
-  $ echo -en "./defs/math\nall" | nc localhost 8453
+  $ printf "./defs/math\nall" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
@@ -29,4 +29,4 @@
   Value of "omega" is 327.
   Value of "final_value" is 333.
   
-  $ kill -INT $PID
+  $ printf '.\nclose' | nc localhost 8453

@@ -2,17 +2,17 @@
   $ PID=$!
   $ sleep 0.1
 
-  $ echo -en "./defs/math\npart 1" | nc localhost 8453
+  $ printf "./defs/math\npart 1" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   
-  $ echo -en "./defs/math\npart 3" | nc localhost 8453
+  $ printf "./defs/math\npart 3" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
   Value of "delta" is 21.
   
-  $ echo -en "./defs/math\npart 12" | nc localhost 8453
+  $ printf "./defs/math\npart 12" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
@@ -27,7 +27,7 @@
   Value of "mu" is 32.
   Value of "nu" is -750.
   
-  $ echo -en "./defs/math\npart 20" | nc localhost 8453
+  $ printf "./defs/math\npart 20" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
@@ -50,7 +50,7 @@
   Value of "upsilon" is 92.
   Value of "phi" is 30.
   
-  $ echo -en "./defs/math\npart 10" | nc localhost 8453
+  $ printf "./defs/math\npart 10" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
@@ -63,4 +63,4 @@
   Value of "kappa" is 23.
   Value of "lambda" is -250.
   
-  $ kill -INT $PID
+  $ printf '.\nclose' | nc localhost 8453
