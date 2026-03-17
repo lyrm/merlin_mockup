@@ -1,0 +1,445 @@
+# Experience report of portabilizing `merlin-domains` to OxCaml
+
+*Portabilizers:* Carine Morel, Timéo Arnouts
+
+*Author:* Carine Morel
+
+*Reviewers:* Sonja Heinze, Timéo Arnouts, Ulysse Gérard, Xavier Van de Woestyne
+
+*Supervisor:* Sonja Heinze
+
+This report documents our experience portabilizing a multicore OCaml project to OxCaml. We describe the challenges we encountered, the solutions we found, and suggestions for improving the OxCaml developer experience.
+
+<!-- TODO : Add a note about the fact that we only took advantage of the DRF axes, not the other ones. The mockup is btw only useful for these axes. -->
+
+<!-- TODO : oxcaml multicore programming requires a lot of deps (parallel, await etc..) -->
+
+## Introduction
+
+<!-- This part is meant to be kept short, interesting details being developed in further sections. The objective is to give the context and how we encounter the main challenges we face.
+
+
+- DONE Quick overview
+- ~~TODO (?) Message passing data structure : not in this part~~
+- DONE What did we actually portabilize: the mockup
+- TODO: add a short paragraph explaining that we portabilized the mock-up rather than the real project, and why. -->
+
+### Background of the contributors
+
+Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Neither of us had prior practical experience with OxCaml or Rust.
+
+- *Carine* — Senior engineer. Wrote the multicore part of `merlin-domains` as well as the original mock-up. Had read the three original blog posts about OxCaml roughly a year before the project and had some familiarity with the concepts from internal discussions, but no hands-on experience.
+
+- *Timéo* — Junior engineer. No prior knowledge of OxCaml.
+
+### About `merlin-domains`
+
+We begin with a brief overview of the project and the context of our work: `merlin-domains` (TODO: add link to repo) is an experimental branch of merlin that aims to leverage multicore programming to improve Merlin's performance. The general idea is to run in parallel a secondary domain to do most of the computation (typing) while the main domain mostly does query dispatching and execution of the query logic. This enables three performance-oriented features:
+
+- Early type return: if permitted by the request, the secondary domain shares a partial typedtree with the main domain as soon as possible, so the main domain can perform the final analysis on it and answer the request without waiting for the full buffer to be typed. Meanwhile, the secondary domain goes back to finish typing the rest of the buffer. This optimization is especially useful for large buffers modified near the beginning.
+
+- Parallelization: the two performance bottlenecks in Merlin are the typing and the final analysis. By running them in parallel thanks to early type return, we can reduce the overall latency of a request. This proves to be difficult as both steps mutate the shared state, creating data races. Some work is still needed to analyse the data races, and find finer-grain solution to avoid them and make the parallelization work better.
+
+- Cancellation mechanism: once the early type return is achieved, the main domain is back to listening for new requests while the secondary domain may still be typing the end of the buffer. If a new request arrives, the main domain can send a cancellation message to the secondary domain to stop the current work and start processing the new request.
+  
+TODO : add sequence diagram from Lambda World
+
+### Reasons for portabilizing `merlin-domains` to OxCaml
+
+`merlin-domains` is a real-world multicore OCaml project, making it a compelling candidate for portabilization to OxCaml:
+
+- **Right level of complexity:** `merlin` is a large, real-world project, far from a toy example: portabilizing it is genuinely challenging. However, its multicore design is relatively simple (only two domains, no scheduler), which makes it a tractable first target. It also features shared mutable state and data races, which OxCaml statically prevents: this means the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
+
+- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a mock-up of the project (TODO: add link). Since we were not very familiar with OxCaml when we started, the mock-up also served as a fallback in case we could not portabilize the real project, which ended up being the case (TODO: link to a more complete explanation ?). The mock-up was progressively complexified to incorporate patterns from the real project that we identified as potential blockers for portabilization.
+
+- **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether it comes from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from OCaml typer that contains mutable values is a concrete instance of this challenge (TODO: link to below).
+
+- **Message-passing data structure:** `merlin-domains` relies on a relatively simple message-passing data structure, which makes it an interesting starting point for exploring how such patterns translate to OxCaml (TODO: link to below).
+
+<!-- TODO: did I miss any other reason -->
+
+<!-- TODO :  Past me: should we do a section about the different features we add to the mockup to simulate poossible blockers for the portabilization ? Or just a line about the fact that we complexified the mockup to introduce some of the challenges we identified in the real project ? -->
+<!-- Current me : but we do that with the challenges below, right ? -->
+
+## The successes
+### Learning OxCaml
+- hard but the documentation help a lot (todo: link to the improvement part below)
+- possible even with API changes 
+
+### Portabilizing the mock-up
+- we portabilize merlin-domain mockup 
+
+- make us more aware of the data races: we had to deal with all data races and find solution to ensure DRF even with the vendored code
+
+### Effect handling safety 
+
+### ? 
+OxCaml: did it help with the general design ? 
+- fork/join : better design -> be more aware of what is shared (read/write) and use the right level of synchronization 
+
+
+## The challenges
+
+Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered, categorized into expected and non-expected ones. As noted before, we focused our effort on leveraring OxCaml DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges related to these features below.
+
+When evaluating the feasability of the project, we identified the following expected challenges:
+- learning OxCaml,
+- which library to use to leverage parallelism with DRF ? 
+- how to guarantee DRF without changing the code vendored from OCaml typer ? 
+
+We also encountered some non-expected challenges: 
+<!-- - the complexity of the OxCaml API and the interdependency between the different features of OxCaml,  -->
+<!-- Note: I add the previous part in the Learning OxCaml part. -->
+- dealing with exception polymorphism,
+- errors messages: understanding them but also understanding the interconnexion between type error and mode error. 
+ 
+
+<!-- ### The non-expected ones
+
+- constant changes in OxCaml API 
+
+- error messages about mode before type (and the priority of the error messages)
+
+- the need to understand almost everything related to modes / the interdependency between the different features of OxCaml to be able to do anything in OxCaml
+    - all the modes are required to do multicore programming in OxCaml (and not just portable and contented)
+    - modalities (that are kind of an exception to mode being deep (TODO check this affirmation))
+    - kinds
+    - unboxed types (used in the capsule API)
+
+- exception polymorphism -->
+
+
+### Learning OxCaml
+
+#### Context
+ We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. This was a significant challenge, as OxCaml has a steep learning curve. 
+
+#### Challenge
+We encountered two main challenges in learning OxCaml: understanding modes, and navigating the capsule API.
+
+The first challenge was the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning often involves much trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. Building familiarity takes time.
+
+The second challenge was navigating the capsule API, which was the more significant challenge of the two, for several reasons:
+
+- *Size.* The API surface is large, making it hard to know which part to focus on when starting out.
+
+- *Fragmentation.* The API is exposed through many libraries: [`capsule0`](https://github.com/janestreet/capsule0), [`capsule`](https://github.com/janestreet/capsule), [`await`](https://github.com/janestreet/await), `portable`, `core`. Each provides a different subset or wrapping of the same underlying types. Although they are all mostly* compatible, they do not expose the same functions, which makes it hard to know where to look for what one needs, especially combined with the size of these APIs.
+
+**Mostly compatible, because there are some incompatibilities between the different libraries. This, for example, does not compile.*
+
+```ocaml
+open Await
+
+let read () =
+  (* Create a capsule and a mutex using the blocking_sync API
+   from the [capsule] library *)
+  let (Capsule.Expert.Key.P key) = Capsule.Expert.create () in
+  let blocking_mutex = Capsule.Blocking_sync.Mutex.create key in
+  let data : (int ref, _) Capsule.Data.t =
+    Capsule.Data.create (fun () -> ref 0)
+  in
+  (* Try to use it with Await.Mutex.with_access. It won't compile
+   because Capsule.Blocking_sync.Mutex.t is not Await.Mutex.t *)
+  let await = Await_blocking.await Terminator.never in
+  Mutex.with_access await blocking_mutex ~f:(fun access ->
+      !(Capsule.Data.unwrap ~access data))
+```
+
+- *Mode prerequisites.* Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, uniqueness for key, and portability and linearity for the callbacks crossing capsule boundaries. This means one cannot learn how to ensure DRF in isolation if any sharing is required. A broad understanding of the mode system is a prerequisite.
+
+- *Lack of guided material.* The API is well documented in its `.mli` files, but reference documentation alone is not enough to build an intuition for when to use each way of opening a capsule (access, password, key). More guided material, like tutorials or annotated examples showing why one approach is needed over another, would have made a real difference. 
+<!-- more explanation -->
+
+- *Verbosity.* The API requires a lot of boilerplate, which tends to hid the core logic and make it harder to understand what is going on, especially for concurrent algorithms. Here is an example, extracted from the message-passing data structure we implemented for `merlin-domains`, of how the API can make simple logic look more complex:
+
+In OCaml: 
+```ocaml
+type 'a t = 
+{ mutex : Mutex.t; 
+  cond : Condition.t; 
+  mutable msg : msg }
+
+let send_and_wait t new_msg =
+  Mutex.protect t.mutex (fun () ->
+    t.msg <- new_msg;
+    Condition.signal t.cond;
+    while t.msg == new_msg do
+      Condition.wait t.cond t.mutex
+    done) 
+```
+
+In OxCaml:
+```ocaml
+module Lock = Capsule.Mutex.Create ()
+type k = Lock.k
+
+type 'a t : value mod contended portable = {
+  mutex : k Mutex.t;
+  cond : k Mutex.Condition.t;
+  msg : (msg ref, k) Capsule.Data.t;
+}
+
+let send_and_wait t new_msg =
+  let await = Await_blocking.await Terminator.never in
+  Mutex.with_key await t.mutex ~f:(fun key ->
+      let #((), key) =
+        Capsule.Expert.Key.access key ~f:(fun access ->
+            let value = Capsule.Data.unwrap ~access t.msg in
+            value := new_msg)
+      in
+      Mutex.Condition.signal t.cond;
+      let key = Mutex.Condition.wait await t.cond ~lock:t.mutex key in
+      let rec loop key =
+        let #(msg, key) =
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              { Modes.Aliased.aliased = !(Capsule.Data.unwrap ~access t.msg) })
+        in
+        if msg.aliased == new_msg then
+          let key = Mutex.Condition.wait await t.cond ~lock:t.mutex key in
+          loop key
+        else #((), key)
+      in
+      loop key [@nontail])
+```
+
+The boilerplate code required to use the capsule API makes it harder to understand the core logic of the function, even for this very simple example. 
+
+#### Approach
+To learn OxCaml, the tutorials on [oxcaml.org](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) were a great help, as well as discussions with the JS team (special thanks to Liam and Aspen). To use the capsule API, we end up doing a lot of trial and errors as it is lacking some tutorials of its own.
+
+<!-- Example about predefining a type k -->
+
+
+<!-- TODO: too negative  -->
+
+#### Take-away
+The documentation is pretty good for a lot of subjects, but the learning curve is still steep. We had to read a lot and have many discussions to understand what we were doing wrong. This is expected for a new language, but we think this could be helped with a different approach for tutorials and better editor support. This is discussed below in **LINK**.
+<!-- *TODO link*. -->
+
+
+
+
+### Finding the right parallelism primitive
+
+<!-- TODO: Concurrent - spawn domain but report. -->
+
+#### Context
+ `merlin-domains` uses a two-domain architecture with a message-passing coordination mechanism: the main domain handles request dispatching while a dedicated secondary domain performs typing (and actually the computation of the whole merlin pipeline). The two domains communicate through a shared synchronization structure using a blocking send/acknowledge protocol. This is not a scheduler in the traditional sense but rather a fixed assignment of roles with explicit inter-domain communication and synchronization.
+
+Here is the general structure of the main domain and the secondary domain (typer) in `merlin-domains`:
+```ocaml
+let main () =
+  (* Hermes is a data structure used to share data in between domains *)
+  let hermes = Hermes.create (fun () -> None) in
+
+  let typer =
+    Domain.spawn (fun () ->
+        let rec loop () =
+          match Hermes.recv_clear hermes with
+          | Config config ->
+              (* some computation *)
+              process config hermes;
+              loop ()
+          | Msg `Closing -> ()
+        in
+        loop ())
+  in
+
+  (try
+     Server.listen ~handle:(fun req ->
+         match req with
+         | Server.Close -> raise Closing
+         | Server.Config config ->
+             (* Send work to the typer domain *)
+             Hermes.send_and_wait hermes (Config cfg);
+             (* Does more stuff and answer the request *)
+             let r = run config hermes in
+             answer r)
+   with _ -> ());
+
+  Hermes.send_and_wait hermes (Msg `Closing);
+  Domain.join typer
+```
+
+
+#### Challenge
+We were planning to use `Parallel.fork_join2` and to rework our design to fit its fork/join model. However this scheduler does not garantee true parallelism: the scheduler may run tasks as fibers on the same domain. This is a problem because our message-passing data structure uses blocking acknowledgement, which would lead to deadlocks if the two tasks are run on the same domain.
+
+Extract of the message passing data structure written in OCaml. 
+```ocaml
+type 'a t = { mutex : Mutex.t; cond : Condition.t; mutable msg : 'a option }
+
+let send_and_wait t msg =
+  Mutex.protect t.mutex (fun () ->
+    let new_v = Some msg in
+    t.msg <- new_v;
+    Condition.signal t.cond;
+    while t.msg == new_v do
+      Condition.wait t.cond t.mutex
+    done)
+```
+`send_and_wait` can't progress without calling another domain calling `Condition.signal` in parallel, which is not guaranteed with `Parallel.fork_join2`.
+
+`Concurrent` will work but will not provided any additional value over `Multicore` as the api provided `spawn_join` functions. It would also add a dependency. 
+
+#### Approach
+The best match we found for our use case is `Multicore` library, which did not require any change in the multicore design of `merlin-domains` and provided true parallelism.
+
+<!-- 
+```ocaml
+let () =
+  (* Hermes is a data structure used to share data in between domains *)
+  let hermes = Hermes.create (fun () -> None) in
+  let counter = Atomic.make 0 in
+
+  let ( let* ) spawn_result f =
+    match spawn_result with Multicore.Spawned -> f () | _ -> assert false
+  in
+
+  let* () =
+    Multicore.spawn
+      (fun () ->
+        let rec loop () =
+          match Hermes.recv_clear hermes with
+          | Config config ->
+              (* some computation *)
+              process config hermes;
+              loop ()
+          | Msg `Closing -> ()
+        in
+        loop ();
+        Atomic.incr counter)
+      ()
+  in
+
+  (try
+     Server.listen ~handle:(fun req ->
+         match req with
+         | Server.Close -> raise Closing
+         | Server.Config config ->
+             (* Send work to the typer domain *)
+             Hermes.send_and_wait hermes (Config cfg);
+             (* Does more stuff and answer the request *)
+             let r = run config hermes in
+             answer r)
+   with _ -> ());
+
+  Hermes.send_and_wait hermes (Msg `Closing);
+  Atomic.incr counter;
+
+  (* Joining *)
+  while Atomic.get counter <> 2 do
+    Thread.yield ()
+  done
+``` 
+-->
+
+#### Take-away
+
+- There are very little documentation about `Concurrent` and `Multicore` libraries, or about the limitation of `Parallel`. Only `Parallel` is mentioned in the oxcaml.org documentation. This should be improved to help users make the right choice for their use case. 
+
+- Using a `fork-join` function would have help us refine: (1) when parallelisation is needed and possible and, (2) what has to be shared between the two domains at each fork.  <!-- TODO : more explanation -->
+
+
+### Integrating vendored code
+
+One of the main blockers for portabilizing the real `merlin-domains` was the presence of mutable values in the code vendored from OCaml typer, which we could not change, but also how complex it would be to clarify what need to be or not protected. This part of the jobs would have been too long and laborious and would not have serve our exploration of OxCaml. However, we did want to explore how to deal with this kind of code, as it is a common situation in real-world projects. We therefore added a mutable top-level value in the mock-up, in a module that represents vendored code, meaning we can't change it, and we had to find a way to interface it with OxCaml while ensuring DRF.
+
+
+#### Context
+
+#### Challenge
+
+#### Approach
+
+#### Take-away
+
+### Dealing with exception polymorphism
+
+#### Context
+
+#### Challenge
+
+#### Approach
+
+#### Take-away
+
+<!-- ## Detailed description of the technical challenges we faced and how we solved them (if we did)
+This session should provide concrete examples and a comprehensive explanation of the challenges, how we encountered them and how we solved them or not and why. 
+
+- Learning OxCaml -> mostly solve through discussions and documentation
+  - link to the related discuss post 
+  - tail call and locality 
+
+- Capsule API: from 10 lines to 100 lines (the message passing data structure)
+  - verbosity 
+  - complexity of the API (password, access, key etc..), and compatibility issue between different part of the API (TODO : check is this is still the case)
+
+- The error message about mode can appeared before type it the scope of the mode error is contained in the scope of the type error. It seems like most of the time it is a bad idea to correct the mode error before the type error.
+
+- Vendored code: can't be change. How to do the interface ? -->
+
+
+## How the experience could be improved ? 
+This part is about suggestions on what could be made to improve the user experience: 
+- better documentation to make the learning curve smoother 
+- better editor support to help the user develop the needed intuition about the modes and don't get lost in the longer API 
+- etc.. 
+
+### Helping the user through editor support
+The challenges: 
+1. each mode = its own logic with some interdependencies between the modes
+  - This make it harder for the user to quickly develop a good intuition 
+=> need editor support to help understand the inferred mode, 
+
+2. Many modes, no mode polymorphism = functions have many versions, and it's hard to find the right one
+=> need editor support to help select the right one
+
+
+#### Give as much contextual information as possible about the modes
+1. Be able to inspect to the modes (and only the ones pertinent for the inferred type)
+How : 
+  - with a command that adds mode annotations or by hovering the value 
+  - similar to type-enclosing, so with growing/shrinking selection (only *not default value* modes > all the pertinent modes > all the modes)
+
+2. Have accessed to which modes are pertinent for a value (i.e. the modes that are NOT crossed by its kind) 
+    - How: with a command that display the info or/and while hovering a value
+
+#### Help the dev understand how a mode has been inferred
+1. Provide some kind of an history of the modes a value. 
+The idea will be to display on command all the modes a value has on the code above, to understand where the mode has been inferred.
+
+How: 
+  - Maybe we can use a combo between inlay-hint and code action for implementation
+  - OR use an editor-side custom request together with inlay-hint.
+  - Show the reason for the inferred mode (e.g. “this value is contended, because it’s a mutable value captured inside a portable function”)
+
+2. Restrict the completion to functions compatible with the inferred modes:
+  - Useful with the longer API 
+  - Useful for locally defined function (example: if we are in a portable function, we can only use the functions compatible with the portable mode)
+  - Probably require to add a note about why a function is not compatible 
+
+<!-- 
+Example to check
+(* why is f portable ? because with_access takes a ~f portable and thys f as to be portable *)
+let apply t ~(f : _ -> _ -> ('b : immutable_data)) =
+  let { Modes.Aliased.aliased; _ } =
+    Mutex.with_access (Await_blocking.await Terminator.never) global_mutex
+      ~f:(fun access ->
+        let pipeline = Capsule.Data.unwrap ~access t.data in
+        let msg = Capsule.Data.unwrap ~access t.msg in
+        let result = f !msg !pipeline in
+        { Modes.Aliased.aliased = result })
+  in
+  aliased -->
+
+### Making the learning curve less steep
+  - need more examples, especially for the capsule API 
+  - small examples to help the devs develop the needed intuition about the modes
+  - Improve error messages (link to the subpart about the priority of the error messages between typing error and mode error as this is strongly related)
+
+
+###  Low-hanging fruits in the documentation 
+
+
+
