@@ -6,10 +6,11 @@ and parsed_item = string * expr
 and expr = Var of string | Int of int | Binop of (op * expr * expr)
 and op = Div | Add | Sub | Mul
 
-type env = (string * int) list ref
+type env = typedtree ref
 
 val parse : string -> parsedtree
-val eval_item : (string * int) list -> parsed_item -> typed_item
+val eval_item : typedtree -> parsed_item -> typed_item
 val rename : env -> unit
-val print : env -> unit
+
+(* val print : env -> unit *)
 val to_string : env -> string
