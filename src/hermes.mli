@@ -22,6 +22,12 @@ val map : 'a t -> f:('a -> 'b) @ portable -> 'b t
 
 val apply :
   ('b : immutable_data). 'a t -> f:(Msg.t -> 'a -> 'b) @ portable -> 'b
+
+val apply_with_access :
+  ('b : immutable_data).
+  'a t ->
+  f:(k Capsule.Access.t -> Msg.t -> 'a -> 'b) @ portable ->
+  'b
 (** [apply t ~f] applies [f] to the message and data inside [t] under the
     protection of its mutex and returns the result. *)
 
