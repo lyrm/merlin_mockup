@@ -56,3 +56,8 @@ val merge :
 
 val protect_capsule :
   ('a, k) Capsule.Data.t -> f:('a -> 'b) @ portable -> ('b : immutable_data)
+
+val protect_capsule_with_access :
+  ('a, k) Capsule.Data.t ->
+  f:(k Capsule.Access.t -> 'a -> 'b) @ portable ->
+  ('b : immutable_data)

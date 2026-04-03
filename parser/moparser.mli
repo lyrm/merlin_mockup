@@ -8,6 +8,7 @@ and op = Div | Add | Sub | Mul
 
 type env = typedtree ref
 
+val reset : unit -> unit
 val parse : string -> parsedtree
 val eval_item : typedtree -> parsed_item -> typed_item
 val rename : env -> unit

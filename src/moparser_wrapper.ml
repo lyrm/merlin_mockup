@@ -3,6 +3,9 @@ open Moparser
 
 type nonrec expr = expr
 
+let reset_ : unit -> unit = Obj.magic_portable Moparser.reset
+let reset ~(access : Hermes.k Capsule.Access.t) () = reset_ ()
+
 let parse = Obj.magic_portable parse
 let eval_item = Obj.magic_portable eval_item
 

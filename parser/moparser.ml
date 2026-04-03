@@ -90,6 +90,18 @@ and op = Div | Add | Sub | Mul
 
 type env = (string * int) list ref
 
+(* Hidden global mutable state — simulates the kind of module-level refs
+   found in merlin's vendored typer (current_level, trail, iter_env_cont, etc.).
+   These are NOT visible in the .mli. *)
+let typing_level = ref 0       (* like current_level in ctype.ml *)
+let typing_trail : string list ref = ref []  (* like trail in types.ml *)
+
+(* Reset hidden state before each request — simulates Local_store
+   snapshot/restore in merlin. *)
+let reset () =
+  typing_level := 0;
+  typing_trail := []
+
 module Parser = struct
   let op_from_token = function
     | TAdd -> Add
@@ -143,6 +155,10 @@ let eval_item env (name, expr) =
         let rv = eval env r in
         op_int lv rv
   in
+  (* Side effects on hidden globals — like Ctype.unify mutating
+     current_level and trail *)
+  incr typing_level;
+  typing_trail := name :: !typing_trail;
   (name, eval env expr)
 
 let name count =
@@ -162,6 +178,11 @@ let name count =
   |> String.concat ""
 
 let rename defs =
+  (* Side effects on hidden globals — like Printtyp.wrap_printing_env
+     reading/writing printing_env and iter_env_cont.
+     Without the wrapper's mutex, this races with eval_item. *)
+  let _level = !typing_level in
+  typing_trail := List.rev !typing_trail;
   defs := List.mapi (fun i (_, v) -> (name i, v)) (List.rev !defs)
 
 let pp_def ppf (x, y) = Format.fprintf ppf "Value of \"%s\" is %d.\n" x y
@@ -191,3 +212,5 @@ let to_string env =
     !env
 
 let parse buf = buffer_to_words buf |> List.map lex |> List.map Parser.def
+
+(*  TODO pas de valeur definie en top level ici *)
