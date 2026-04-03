@@ -3,153 +3,132 @@ module Lock = Capsule.Mutex.Create ()
 
 type k = Lock.k
 
+(* ================================================================
+   Vendored module: simulates code we can't change (e.g. the OCaml
+   typer vendored in merlin). Contains two kinds of mutable state:
+
+   - [env]: a mutable record field, visible in the signature.
+     Analogous to type_expr mutable fields or environment data.
+
+   - [global_counter]: a hidden module-level ref, not in the signature.
+     Analogous to current_level, trail, iter_env_cont, etc.
+
+   Both are mutated as side effects of the public functions.
+   ================================================================ *)
 module Vendored : sig
-  type t
+  type env
 
-  val create : unit -> t
-  val add_env : t -> string -> unit
-  val concat_all : t -> string -> unit
-  val foo : int -> bool
+  val create : unit -> env
+  val add_entry : env -> string -> unit
+  val compute : int -> bool
 end = struct
-  type r = string list ref
-  type t = { r : r }
-  type b = int ref
+  type env = { entries : string list ref }
 
-  let r : r = ref []
-  let create () = { r }
-  let b = ref 0
-  let add_env (t : t) a = t.r := a :: !(t.r)
+  (* Hidden global states *)
+  let global_counter = ref 0
+  let entries = ref []
+  let create () = { entries }
 
-  let concat_all (t : t) (c : string) =
-    t.r := List.map (fun s -> s ^ c) !(t.r);
-    incr b
+  let add_entry env s =
+    env.entries := s :: !(env.entries);
+    incr global_counter
 
-  let foo (c : int) =
-    b := !b + c;
-    !b mod 2 = 0
+  let compute n =
+    global_counter := !global_counter + n;
+    !global_counter mod 2 = 0
 end
 
-module Wrapper : sig @@ portable
-  type t : value mod contended portable = (Vendored.t, k) Capsule.Data.t
-  (* type protect = k Capsule.Access.t *)
+(* ================================================================
+  Naive wrapper: re-exports vendored functions as portable without any protection.
+   ================================================================ *)
+module Wrapper_naive : sig @@ portable
+  type env = Vendored.env
 
-  val create : unit -> t
-  val add_env_p : access:k Capsule.Access.t @ local -> t -> string -> unit
-  val concat_all_p : access:k Capsule.Access.t @ local -> t -> string -> unit
-  val foo_p : access:k Capsule.Access.t @ local -> int -> bool
+  val create : unit -> env
+  val add_entry : env -> string -> unit
+  val compute : int -> bool
 end = struct
-  type t : value mod contended portable = (Vendored.t, k) Capsule.Data.t
-  (* type protect = k Capsule.Access.t *)
+  type env = Vendored.env
+
+  let create = Obj.magic_portable @@ Vendored.create
+  let add_entry = Obj.magic_portable @@ Vendored.add_entry
+  let compute = Obj.magic_portable @@ Vendored.compute
+end
+
+(* ================================================================
+   Wrapper: re-exports vendored functions as portable, and requires
+   a [k Capsule.Access.t] to call them. This ensures the caller
+   holds the mutex before touching any vendored mutable state.
+
+   The wrapper is the trust boundary: internally it uses
+   [Obj.magic_portable] to cast vendored functions. The correctness
+   is verified by the wrapper author, not by the compiler.
+   ================================================================ *)
+module Wrapper : sig @@ portable
+  type env : value mod contended portable = (Vendored.env, k) Capsule.Data.t
+
+  val create : unit -> env
+  val add_entry : access:k Capsule.Access.t @ local -> env -> string -> unit
+  val compute : access:k Capsule.Access.t @ local -> int -> bool
+end = struct
+  type env : value mod contended portable = (Vendored.env, k) Capsule.Data.t
 
   let create_ = Obj.magic_portable @@ Vendored.create
-  let create () = Capsule.Data.create create_
+  let create () : env = Capsule.Data.create create_
+  let add_entry_ = Obj.magic_portable @@ Vendored.add_entry
 
-  let add_env : Vendored.t -> string -> unit =
-    Obj.magic_portable @@ Vendored.add_env
+  let add_entry ~(access : k Capsule.Access.t @ local) env s =
+    add_entry_ (Capsule.Data.unwrap ~access env) s
 
-  let add_env_p : access:k Capsule.Access.t @ local -> t -> string -> unit =
-   fun ~access env a ->
-    let env = Capsule.Data.unwrap ~access env in
-    add_env env a
-
-  let concat_all : Vendored.t -> string -> unit =
-    Obj.magic_portable @@ Vendored.concat_all
-
-  let concat_all_p : access:k Capsule.Access.t @ local -> t -> string -> unit =
-   fun ~access env c ->
-    let env = Capsule.Data.unwrap ~access env in
-    concat_all env c
-
-  let foo : int -> bool = Obj.magic_portable @@ Vendored.foo
-
-  let foo_p : access:k Capsule.Access.t @ local -> int -> bool =
-   fun ~access c -> foo c
+  let compute_ = Obj.magic_portable @@ Vendored.compute
+  let compute ~(access : k Capsule.Access.t @ local) n = compute_ n
 end
 
+(* ================================================================
+   Usage: two domains calling wrapped vendored functions.
+   Each domain acquires the mutex before calling any wrapper function.
+   ================================================================ *)
 let () =
   let counter = Atomic.make 0 in
+  let mutex = Lock.mutex in
+  let env = Wrapper.create () in
 
   let ( let* ) spawn_result f =
     match spawn_result with
     | Multicore.Spawned -> f ()
-    | Failed ((), _, _) -> failwith ""
+    | Failed ((), _, _) -> failwith "spawn failed"
   in
 
-  let mutex = Lock.mutex in
-
-  let w = Wrapper.create () in
-
+  (* Domain 1: simulates the typer domain *)
   let* () =
     Multicore.spawn
       (fun () ->
         let await = Await_blocking.await Terminator.never in
         Mutex.with_key await mutex ~f:(fun key ->
             Capsule.Expert.Key.access key ~f:(fun access ->
-                Wrapper.concat_all_p ~access w "prout"));
+                Wrapper.add_entry ~access env "hello";
+                Wrapper.add_entry ~access env "world"));
         Atomic.incr counter)
       ()
   in
 
+  (* Domain 2: simulates the analysis domain *)
   let* () =
     Multicore.spawn
       (fun () ->
         let await = Await_blocking.await Terminator.never in
         Mutex.with_key await mutex ~f:(fun key ->
             Capsule.Expert.Key.access key ~f:(fun access ->
-                Wrapper.concat_all_p ~access w "prout"));
+                Wrapper.add_entry ~access env "foo";
+                let _ = Wrapper.compute ~access 42 in
+                ()));
         Atomic.incr counter)
       ()
   in
 
-  (* Waiting for all domains to finish *)
   while Atomic.get counter <> 2 do
     Thread.yield ()
   done
-
-(* let () =
-  let counter = Atomic.make 0 in
-
-  let ( let* ) spawn_result f =
-    match spawn_result with
-    | Multicore.Spawned -> f ()
-    | Failed ((), _, _) -> failwith ""
-  in
-
-  let mutex = Lock.mutex in
-
-  let w = Wrapper.create () in
-
-  let* () =
-    Multicore.spawn
-      (fun () ->
-        let await = Await_blocking.await Terminator.never in
-        Mutex.with_key await mutex ~f:(fun key ->
-            Capsule.Expert.Key.access key ~f:(fun access ->
-                (* partial can't be portable (and thus be returned because access is contended )**)
-                let partial : (Wrapper.t -> string -> unit) @ portable =
-                 fun w s -> Wrapper.concat_all_p ~access w s
-                in
-                partial w "prout";
-                partial));
-        Atomic.incr counter)
-      ()
-  in
-
-  let* () =
-    Multicore.spawn
-      (fun () ->
-        let await = Await_blocking.await Terminator.never in
-        Mutex.with_key await mutex ~f:(fun key ->
-            Capsule.Expert.Key.access key ~f:(fun access ->
-                Wrapper.concat_all_p ~access w "prout"));
-        Atomic.incr counter)
-      ()
-  in
-
-  (* Waiting for all domains to finish *)
-  while Atomic.get counter <> 2 do
-    Thread.yield ()
-  done *)
 
 (* ================================================================
    Analysis: does this wrapper prevent data races?
@@ -158,25 +137,25 @@ let () =
    The Vendored module models two categories of mutable state found in
    merlin's vendored OCaml typer (see MUTABLE_STATE_AUDIT_MERLIN.md):
 
-   1. State reachable through [Vendored.t] (here: [r]).
+   1. State reachable through [Vendored.env] (here: [entries]).
       Maps to: type_expr mutable fields, trail, environment data — state
       passed through functions like Ctype.unify(env, type_expr).
 
-      Protection: [Vendored.t] is wrapped in [Capsule.Data.t]. The only
+      Protection: [Vendored.env] is wrapped in [Capsule.Data.t]. The only
       way to unwrap it is via [Capsule.Data.unwrap ~access], which
       requires a [k Capsule.Access.t]. The branding with [k] ties it to
       [Lock.mutex], so all access is serialized. Sound.
 
-   2. Hidden global state not in [Vendored.t] (here: [b]).
+   2. Hidden global state not in [Vendored.env] (here: [global_counter]).
       Maps to: iter_env_cont, printing_*, warnings.*, abbreviations,
       simple_abbrevs — plain refs mutated as side effects of vendored
       functions, not reachable through any parameter.
 
       Protection: indirect. All Wrapper functions require [k Access.t],
       and [k] is abstract, so callers must go through [Lock.mutex] to
-      obtain one. This serializes all calls, which happens to protect [b].
-      Sound, but the guarantee relies on branding, not on structural
-      capsule protection.
+      obtain one. This serializes all calls, which happens to protect
+      [global_counter]. Sound, but the guarantee relies on branding, not
+      on structural capsule protection.
 
    3. Category NOT modeled: Local_store snapshot/restore.
       In merlin, Local_store gives both domains access to the same

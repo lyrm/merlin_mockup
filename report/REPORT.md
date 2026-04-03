@@ -217,8 +217,6 @@ The documentation is pretty good for a lot of subjects, but the learning curve i
 <!-- *TODO link*. -->
 
 
-
-
 ### Finding the right parallelism primitive
 
 <!-- TODO: Concurrent - spawn domain but report. -->
@@ -343,16 +341,114 @@ let () =
 
 ### Integrating vendored code
 
-One of the main blockers for portabilizing the real `merlin-domains` was the presence of mutable values in the code vendored from OCaml typer, which we could not change, but also how complex it would be to clarify what need to be or not protected. This part of the jobs would have been too long and laborious and would not have serve our exploration of OxCaml. However, we did want to explore how to deal with this kind of code, as it is a common situation in real-world projects. We therefore added a mutable top-level value in the mock-up, in a module that represents vendored code, meaning we can't change it, and we had to find a way to interface it with OxCaml while ensuring DRF.
-
-
 #### Context
+
+Dealing with vendored code was one of the main reasons we portabilized the mock-up rather than the real project: we needed a simpler codebase to explore possible approaches.
+
+`merlin` vendors a large portion of the OCaml compiler, in particular the typer (`src/ocaml/`). This vendored code is written in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields on type nodes. This vendored code cannot be rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase.
+
+At the same time, both domains call into vendored code. The worker domain runs the typer, and the main domain runs analysis code (calling functions like `Ctype.unify`, `Printtyp.wrap_printing_env`, `Env.find_type`, etc.) on the partial result. During the partial result scenario, both domains execute vendored code concurrently, creating data races on shared mutable state.
+
+This situation is not specific to merlin: any project that depends on non-OxCaml libraries faces the same question. The vendored code can't benefit from OxCaml's mode system directly, but we still want the rest of the codebase to get some DRF guarantees when interfacing with it.
 
 #### Challenge
 
+The vendored code is plain OCaml: its functions are `nonportable` and can't be called from a `portable` context (e.g. inside a `fork_join` or a capsule callback). The most straightforward approach is to wrap them with `Obj.magic_portable`:
+
+```ocaml
+module Vendored : sig
+  type env
+  val create : unit -> env
+  val add_entry : env -> string -> unit
+  val compute : int -> bool
+end = struct
+  type env = { entries : string list ref }
+  (* Hidden global state — not visible in the signature *)
+  let global_counter = ref 0
+  let add_entry env s =
+    env.entries := s :: !(env.entries);
+    incr global_counter
+  let compute n =
+    global_counter := !global_counter + n;
+    !global_counter mod 2 = 0
+  ...
+end
+
+(* Naive wrapper: makes vendored functions portable, but provides
+   no protection against data races. *)
+module Wrapper_naive : sig @@ portable
+  val add_entry : Vendored.env -> string -> unit
+  val compute : int -> bool
+end = struct
+  let add_entry = Obj.magic_portable @@ Vendored.add_entry
+  let compute = Obj.magic_portable @@ Vendored.compute
+end
+```
+
+This makes the functions callable from both domains, but nothing prevents two domains from calling them concurrently. Both `add_entry` and `compute` mutate hidden global state (`global_counter`), and `add_entry` also mutates `env` — so calling any combination of these from two domains in parallel is a data race. The naive wrapper compiles, but it is no safer than plain OCaml.
+
+We needed to find a way to leverage OxCaml's mode system to enforce mutual exclusion on vendored function calls at compile time, without being able to change the vendored code itself.
+
 #### Approach
 
+Our approach is to require a branded `Capsule.Access.t` to call any wrapper function. We create a single capsule/mutex pair and tie the wrapper to its brand `k`. We also wrap the visible mutable state (`Vendored.env`) in a `Capsule.Data.t`, so that unwrapping it requires the same `Access.t`:
+
+```ocaml
+module Lock = Capsule.Mutex.Create ()
+type k = Lock.k
+
+module Wrapper : sig @@ portable
+  type env : value mod contended portable = (Vendored.env, k) Capsule.Data.t
+
+  val create : unit -> env
+  val add_entry : access:k Capsule.Access.t -> env -> string -> unit
+  val compute : access:k Capsule.Access.t -> int -> bool
+end = struct
+  type env : value mod contended portable = (Vendored.env, k) Capsule.Data.t
+
+  let create_ = Obj.magic_portable @@ Vendored.create
+  let create () : env = Capsule.Data.create create_
+  let add_entry_ = Obj.magic_portable @@ Vendored.add_entry
+
+  let add_entry ~(access : k Capsule.Access.t) env s =
+    add_entry_ (Capsule.Data.unwrap ~access env) s
+
+  let compute_ = Obj.magic_portable @@ Vendored.compute
+  let compute ~(access : k Capsule.Access.t) n = compute_ n
+end
+```
+
+The key idea: the only way to obtain a `k Capsule.Access.t` is through `Lock.mutex`, so callers are forced to hold the mutex before calling any wrapper function. Since `k` is abstract, no other mutex can produce a compatible `Access.t`. This gives a compile-time guarantee that all vendored code runs under mutual exclusion.
+
+For `add_entry`, the `Access.t` serves a double purpose: it is needed both to unwrap `env` from its `Capsule.Data.t` and to authorize the call (which mutates hidden global state). For `compute`, which does not take an `env` argument, the `Access.t` only serves as an authorization token: it is not structurally needed, but requiring it ensures the caller holds the mutex. In both cases, the wrapper is the trust boundary: `Obj.magic_portable` casts are used inside, and the wrapper author must verify that the vendored functions are safe to call under the lock. Outside the wrapper, the compiler enforces the discipline: no `Access.t`, no call.
+
+On the caller side, this looks like:
+
+```ocaml
+let await = Await_blocking.await Terminator.never in
+Mutex.with_key await Lock.mutex ~f:(fun key ->
+    Capsule.Expert.Key.access key ~f:(fun access ->
+        Wrapper.add_entry ~access env "hello";
+        let _ = Wrapper.compute ~access 42 in
+        ()))
+```
+
+A single mutex does not mean a single big critical section: the caller controls the granularity of each acquisition, and parallelism comes from the gaps between them.
+
+We chose a single mutex rather than multiple mutexes (one per category of state) because vendored functions often touch multiple categories of state in a single call. For instance, `Ctype.unify` mutates `trail`, `current_level`, `type_expr` fields, and `abbreviations` all at once. Multiple mutexes would require acquiring several locks atomically, introducing deadlock risks. A single mutex avoids lock ordering issues entirely.
+
+<!-- The full example with the Vendored, Wrapper and test code is in
+     report/vendored_code_example.ml -->
+
 #### Take-away
+
+- *The branded `Access.t` pattern is a general approach* for interfacing OxCaml code with non-OxCaml dependencies: the compiler enforces the mutex discipline at the boundary, without modifying the dependency.
+
+- *The guarantee is only as good as the wrapper*: a vendored function missing from the wrapper can be called without the mutex. The wrapper must be audited manually.
+
+- *The wrapper maintenance cost seems acceptable for merlin*: it only needs updating when the vendored API surface changes (new or modified function signatures), not for internal refactors.
+
+- *Open question*: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
 
 ### Dealing with exception polymorphism
 
