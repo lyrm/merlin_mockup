@@ -34,9 +34,9 @@ module Wrapper : sig @@ portable
   (* type protect = k Capsule.Access.t *)
 
   val create : unit -> t
-  val add_env_p : access:k Capsule.Access.t -> t -> string -> unit
-  val concat_all_p : access:k Capsule.Access.t -> t -> string -> unit
-  val foo_p : access:k Capsule.Access.t -> int -> bool
+  val add_env_p : access:k Capsule.Access.t @ local -> t -> string -> unit
+  val concat_all_p : access:k Capsule.Access.t @ local -> t -> string -> unit
+  val foo_p : access:k Capsule.Access.t @ local -> int -> bool
 end = struct
   type t : value mod contended portable = (Vendored.t, k) Capsule.Data.t
   (* type protect = k Capsule.Access.t *)
@@ -47,7 +47,7 @@ end = struct
   let add_env : Vendored.t -> string -> unit =
     Obj.magic_portable @@ Vendored.add_env
 
-  let add_env_p : access:k Capsule.Access.t -> t -> string -> unit =
+  let add_env_p : access:k Capsule.Access.t @ local -> t -> string -> unit =
    fun ~access env a ->
     let env = Capsule.Data.unwrap ~access env in
     add_env env a
@@ -55,13 +55,15 @@ end = struct
   let concat_all : Vendored.t -> string -> unit =
     Obj.magic_portable @@ Vendored.concat_all
 
-  let concat_all_p : access:k Capsule.Access.t -> t -> string -> unit =
+  let concat_all_p : access:k Capsule.Access.t @ local -> t -> string -> unit =
    fun ~access env c ->
     let env = Capsule.Data.unwrap ~access env in
     concat_all env c
 
   let foo : int -> bool = Obj.magic_portable @@ Vendored.foo
-  let foo_p : access:k Capsule.Access.t -> int -> bool = fun ~access c -> foo c
+
+  let foo_p : access:k Capsule.Access.t @ local -> int -> bool =
+   fun ~access c -> foo c
 end
 
 let () =
@@ -103,6 +105,51 @@ let () =
   while Atomic.get counter <> 2 do
     Thread.yield ()
   done
+
+(* let () =
+  let counter = Atomic.make 0 in
+
+  let ( let* ) spawn_result f =
+    match spawn_result with
+    | Multicore.Spawned -> f ()
+    | Failed ((), _, _) -> failwith ""
+  in
+
+  let mutex = Lock.mutex in
+
+  let w = Wrapper.create () in
+
+  let* () =
+    Multicore.spawn
+      (fun () ->
+        let await = Await_blocking.await Terminator.never in
+        Mutex.with_key await mutex ~f:(fun key ->
+            Capsule.Expert.Key.access key ~f:(fun access ->
+                (* partial can't be portable (and thus be returned because access is contended )**)
+                let partial : (Wrapper.t -> string -> unit) @ portable =
+                 fun w s -> Wrapper.concat_all_p ~access w s
+                in
+                partial w "prout";
+                partial));
+        Atomic.incr counter)
+      ()
+  in
+
+  let* () =
+    Multicore.spawn
+      (fun () ->
+        let await = Await_blocking.await Terminator.never in
+        Mutex.with_key await mutex ~f:(fun key ->
+            Capsule.Expert.Key.access key ~f:(fun access ->
+                Wrapper.concat_all_p ~access w "prout"));
+        Atomic.incr counter)
+      ()
+  in
+
+  (* Waiting for all domains to finish *)
+  while Atomic.get counter <> 2 do
+    Thread.yield ()
+  done *)
 
 (* ================================================================
    Analysis: does this wrapper prevent data races?
