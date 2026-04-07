@@ -90,3 +90,152 @@ let send_and_wait t new_msg =
         else #((), key)
       in
       loop key [@nontail])
+
+(* ******************* *)
+
+(* type state = { mutable count : int } *)
+
+(* let process (s : state) par =
+  let read _par = s.count in
+  let incr _par = s.count <- s.count + 1 in
+
+  (* [sum] compiles in fork_join2 but not [inc].
+
+     Hovering over [sum] would show:
+       ('a -> int) @ shareable
+     Hovering over [inc] would show:
+       ('a -> unit) @ nonportable
+
+    making it clear [sum] is compatible with fork_join2 while [inc] is not.
+  *)
+  let #(_, ()) = Parallel_kernel.fork_join2 par read incr in
+  () *)
+
+(* ******************* *)
+
+(* let foo () =
+  let r = ref None in
+
+  let bar () = !r in
+
+  let _ = Multicore.spawn bar () in
+
+  r := Some 43 *)
+
+(* ******************* *)
+
+(* module T : sig
+  val foo_p : unit -> int option @@ portable
+  val foo_np : unit -> unit
+end = struct
+  let a = ref (Some 42)
+  let foo_np () = a := Option.map (( + ) 1) !a
+  let foo_p () = Some 12
+end
+
+let foo par = Multicore.spawn T.f () |> ignore *)
+
+(* ******************* *)
+
+(* open Core
+
+let f () =
+  let l = stack_ [ 1; 2; 3 ] in
+  List.iter__local l ~f:(fun _ -> ()) [@nontail]
+(*   ^^
+     Completion shows [iter], [map], [filter], ...
+     but with a local list, the global variants won't work.
+     Mode-aware completion would indicate which variants
+     accept a local argument. *) *)
+
+(* ******************* *)
+
+(* let apply t (foo : _ -> unit) =
+  Mutex.with_access (Await_blocking.await Terminator.never) Lock.mutex
+    ~f:(fun access -> foo access) *)
+
+(* ******************* *)
+
+(* let foo () =
+  let free (_ @ unique) = () in
+  let f _ = () in
+
+  let r = Some 42 in
+
+  let _ = f (r : int option @ many) in
+  let _ = f (r : int option @ many) in
+  let _ = free (r : int option @ unique) in
+  () *)
+
+(* ******************* *)
+
+(* let foo await mutex data =
+  Mutex.with_access await mutex ~f:(fun access ->
+      (* this closure: @ portable once local *)
+      (*   because: Mutex.with_access requires ~f @ portable *)
+      let r = Capsule.Data.unwrap ~access data in
+      (* r : int ref @ aliased uncontended *)
+      (*   because: unwrap inside with_access gives uncontended *)
+      incr r;
+      !r) *)
+(* return value: int @ contended portable *)
+(*   because: with_access returns @ contended portable *)
+
+(* ******************* *)
+
+(* let foo () =
+  let r @ uncontended = ref (Some 42) in
+
+  let _ = Multicore.spawn (fun () -> r := Option.map (( + ) 1) !r) () in
+
+  (r : int option ref @ uncontended) := Some 43 *)
+
+(* ******************* *)
+
+(* open! Await
+module Lock = Capsule.Mutex.Create ()
+
+let data : (int list ref, Lock.k) Capsule.Data.t =
+  Capsule.Data.create (fun () -> ref [])
+
+let make_processor () =
+  let cache = ref [] in
+  let f x =
+    cache := x :: !cache;
+    List.length !cache
+  in
+  f
+
+let example () =
+  let f = make_processor () in
+  (* ... 50 lines of code ... *)
+  let await = Await_blocking.await Terminator.never in
+  Mutex.with_access await Lock.mutex ~f:(fun access ->
+      let data = Capsule.Data.unwrap ~access data in
+      let _ = f !data in
+      ()) *)
+
+(* ******************* *)
+
+(* let consume (x @ unique) = ignore x
+
+let example (x @ unique) =
+  let f () = consume x in
+  let g () = f () in
+  g ();
+  g () *)
+(* error: g is once, already used *)
+
+(* ******************* *)
+(*
+let make_config () = exclave_ stack_ ("host", 8080)
+
+
+let wrap_config () =
+  let cfg = make_config () in
+  (* cfg is local*)
+  let wrapped = (cfg, "metadata") in
+  (* wrapped is local *)
+  wrapped 
+  (* error: local, expected global *)
+*)

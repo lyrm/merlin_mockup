@@ -450,6 +450,7 @@ We chose a single mutex rather than multiple mutexes (one per category of state)
 
 - *Open question*: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
 
+
 ### Dealing with exception polymorphism
 
 #### Context
@@ -483,51 +484,143 @@ This part is about suggestions on what could be made to improve the user experie
 - etc.. 
 
 ### Helping the user through editor support
-The challenges: 
-1. each mode = its own logic with some interdependencies between the modes
-  - This make it harder for the user to quickly develop a good intuition 
-=> need editor support to help understand the inferred mode, 
 
-2. Many modes, no mode polymorphism = functions have many versions, and it's hard to find the right one
-=> need editor support to help select the right one
+The same way `rust-analyzer` provides indicators and hints to help deal with lifetime and ownership, we think that editor support could be extremely helpful with OxCaml. It could help developers understand what has been inferred, navigate APIs made larger by mode variants, and develop the intuition needed to work with modes.
+
+Based on our experience portabilizing `merlin-domains`, we identified three categories of editor features that would be especially helpful:
+- *Inspecting modes*: seeing what modes a value has, and which ones matter for its type.
+- *Mode-aware navigation*: filtering completion and search results by mode compatibility, to help navigate APIs that expose many variants of the same function for different modes.
+- *Understanding mode inference*: tracing why a given mode was inferred, to help diagnose errors and develop intuition.
+
+#### Inspecting modes
+
+Like type inspection, mode inspection is a straightforward but essential feature. For example:
+
+```ocaml
+type state = { mutable count : int }
+
+let process (s : state) par =
+  let read _par = s.count in
+  let incr _par = s.count <- s.count + 1 in
+
+  (* [read] compiles in fork_join2 but not [incr].
+
+     Hovering over [read] would show:
+       ('a -> int) @ shareable
+     Hovering over [incr] would show:
+       ('a -> unit) @ nonportable
+
+    making it clear [read] is compatible with fork_join2 while [incr] is not.
+  *)
+  let #(_, ()) = Parallel_kernel.fork_join2 par read incr in
+  () 
+```
+ 
+Concretely:
+- Modes should be available via hovering or a command that adds annotations, similar to type-enclosing increase-verbosity feature.
+- A growing/shrinking selection would help manage the information: show only non-default modes first, then all pertinent modes (i.e. the modes NOT crossed by its kind), then all modes.
 
 
-#### Give as much contextual information as possible about the modes
-1. Be able to inspect to the modes (and only the ones pertinent for the inferred type)
-How : 
-  - with a command that adds mode annotations or by hovering the value 
-  - similar to type-enclosing, so with growing/shrinking selection (only *not default value* modes > all the pertinent modes > all the modes)
+#### Mode-aware completion
 
-2. Have accessed to which modes are pertinent for a value (i.e. the modes that are NOT crossed by its kind) 
-    - How: with a command that display the info or/and while hovering a value
+Inside a mode-constrained context, many functions are not usable, whether they come from local definitions or external libraries. Today, completion shows them all, and the developer discovers the incompatibility only after selecting one.
 
-#### Help the dev understand how a mode has been inferred
-1. Provide some kind of an history of the modes a value. 
-The idea will be to display on command all the modes a value has on the code above, to understand where the mode has been inferred.
+With local definitions:
+```ocaml
+module T : sig
+  val foo_p : unit -> int option @@ portable
+  val foo_np : unit -> unit
+end = struct
+  let a = ref (Some 42)
+  let foo_np () = a := Option.map (( + ) 1) !a
+  let foo_p () = Some 12
+end
 
-How: 
-  - Maybe we can use a combo between inlay-hint and code action for implementation
-  - OR use an editor-side custom request together with inlay-hint.
-  - Show the reason for the inferred mode (e.g. “this value is contended, because it’s a mutable value captured inside a portable function”)
+let foo par = Multicore.spawn T.__ () |> ignore
+(*                              ^^
+   Completion shows both [foo_p] and [foo_np], but only
+   [foo_p] is compatible with [spawn]’s portable requirement. *)
+```
 
-2. Restrict the completion to functions compatible with the inferred modes:
-  - Useful with the longer API 
-  - Useful for locally defined function (example: if we are in a portable function, we can only use the functions compatible with the portable mode)
-  - Probably require to add a note about why a function is not compatible 
+With external libraries:
+```ocaml
+open! Core
 
-<!-- 
-Example to check
-(* why is f portable ? because with_access takes a ~f portable and thys f as to be portable *)
-let apply t ~(f : _ -> _ -> ('b : immutable_data)) =
-  let { Modes.Aliased.aliased; _ } =
-    Mutex.with_access (Await_blocking.await Terminator.never) global_mutex
-      ~f:(fun access ->
-        let pipeline = Capsule.Data.unwrap ~access t.data in
-        let msg = Capsule.Data.unwrap ~access t.msg in
-        let result = f !msg !pipeline in
-        { Modes.Aliased.aliased = result })
+let foo () =
+  let l = stack_ [ 1; 2; 3 ] in
+  List.__ l ~f:(fun _ -> ()) [@nontail]
+  (*   ^^
+     Completion shows [iter], [map], [filter], ...
+     but with a local list, the global variants won't work. *)
+```
+
+Mode-aware completion would work the same way type-aware completion already does: by ranking results based on compatibility with the current context. In the `List` example, `List.iter__local` should be ranked higher than `List.iter` when the argument is local. In the `Multicore.spawn` example, `foo_p` should rank higher than `foo_np`. It could also provide a short hint about incompatible candidates (e.g. “`List.iter` requires a global argument, but `l` is local”).
+
+#### Understanding mode inference
+
+When a mode error occurs, the compiler reports the conflict at the use site and even so the error message are good, they does not always trace back to the root cause. This can be confusing when the value’s mode was determined far from where it is used. For example:
+
+```ocaml
+open! Await
+module Lock = Capsule.Mutex.Create ()
+
+let data : (int list ref, Lock.k) Capsule.Data.t =
+  Capsule.Data.create (fun () -> ref [])
+
+let make_processor () =
+  let cache = ref [] in
+  let f x =
+    cache := x :: !cache;
+    List.length !cache
   in
-  aliased -->
+  f
+
+let example () =
+  let foo = make_processor () in
+  (* ... 50 lines of code ... *)
+  let await = Await_blocking.await Terminator.never in
+  Mutex.with_access await Lock.mutex ~f:(fun access ->
+      let data = Capsule.Data.unwrap ~access data in
+      let _ = foo !data in
+      ())
+```
+
+The compiler rejects this with `”foo” is “nonportable” but expected to be “portable”` on `foo` at line 21. But it does not explain *why* `foo` is nonportable. The root cause is that `make_processor` captures a mutable `cache` ref (line 9), which makes the returned closure nonportable. If `make_processor` is defined in a different module or far away, the developer has no easy way to find this.
+
+An editor feature that, on command, displays the full inference chain for a selected value would help. For example, selecting `foo` at line 21 could show:
+
+```
+foo : int list -> int
+  line 16: bound @ nonportable
+    because: returned from [make_processor]
+    because: captures [cache] (mutable ref, line 9)
+  line 21: required @ portable
+    because: used inside Mutex.with_access ~f (which requires @ portable)
+```
+
+This is similar to what the compiler already computes for some errors, but exposed on demand for any value, including in code that compiles successfully. It could be displayed in a side panel or as inlay hints.
+
+Here is another example, on the linearity axis: 
+```ocaml
+let consume (x @ unique) = ignore x
+
+let example (x @ unique) =
+  let f () = consume x in
+  let g () = f () in
+  g ();
+  g ()
+```
+
+The trace would show: 
+```
+g : unit -> unit
+  line 5: bound @ once
+    because: captures [f] (line 4) which is @ once
+    because: [f] captures [x] which is @ unique
+  line 7: error — once, already used at line 6
+```
+The compiler only reports that `g` is `once` and was already used at line 6, without explaining the `g` → `f` → `x @ unique` chain.
+
 
 ### Making the learning curve less steep
   - need more examples, especially for the capsule API 
