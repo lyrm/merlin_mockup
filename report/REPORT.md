@@ -449,28 +449,60 @@ We chose a single mutex rather than multiple mutexes (one per category of state)
 - *The wrapper maintenance cost seems acceptable for merlin*: it only needs updating when the vendored API surface changes (new or modified function signatures), not for internal refactors.
 
 - *Open question*: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
+### Interaction between type errors and mode errors
+
+We document here two non-obvious behaviors with mode errors that we encountered. We propose no solution; these are observations that may be worth investigating. Both come from the fact that mode crossing depends on the type of a value, and the type may not be fully resolved when the mode is checked.
+
+#### Mode errors that disappear with a type annotation
+
+```ocaml
+type msg = Empty | Msg of int option
+
+(* Without annotation: the mode of x is checked at line 6 before
+   the match on line 8 constrains x to [msg]. The compiler doesn't
+   know x is an immutable variant that crosses contention. *)
+let foo par x =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+    (*  Error: x is "shared" but expected "uncontended" *)
+  in
+  match v with Empty -> Empty | Msg opt -> Msg (Option.map (( + ) 1) opt)
+
+(* With annotation: [msg] is known at the point where modes are checked.
+   [msg] is immutable data, so it crosses contention. Compiles. *)
+let foo' par (x : msg) =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+  in
+  match v with Empty -> Empty | Msg opt -> Msg (Option.map (( + ) 1) opt)
+```
+
+The mode error disappears with a type annotation. This is confusing because a mode error naturally leads one to look for a mode fix rather than a type fix.
+
+#### Mode error that masks a type error
+
+The following is a simple example where fixing a type error also fixes a mode error. The same pattern exists in plain OCaml (one type error can mask another), but mode errors push developers toward mode fixes, which may not be the root cause. 
+
+```ocaml
+let make () = exclave_ stack_ ("hello", 42)
+
+(* Mode error: p is local, can't be returned. *)
+let f () =
+  let p = make () in
+  p
+
+(* Type error: f () returns (string * int), not int.
+   But this error is hidden because f doesn't compile. *)
+let g () =
+  let x : int = f () in
+  x + 1
+```
+
+The compiler reports the mode error on `p` in `f` and never shows the type error in `g`. Returning `snd p` instead of `p` fixes both: `int` crosses locality, and the type matches `g`'s expectation.
+
+`merlin` already provides a good partial answer to this problem by showing the type error in `g` as a secondary error, but it is still easy to miss the dependency between both errors (obviously not in this oversimplified example).
 
 
-### Error message priority and interconnection between type errors and mode errors
-
-#### Context
-
-#### Challenge
-
-#### Approach
-
-#### Take-away
-
-
-### Dealing with exception polymorphism
-
-#### Context
-
-#### Challenge
-
-#### Approach
-
-#### Take-away
 
 <!-- ## Detailed description of the technical challenges we faced and how we solved them (if we did)
 This session should provide concrete examples and a comprehensive explanation of the challenges, how we encountered them and how we solved them or not and why. 
