@@ -451,6 +451,17 @@ We chose a single mutex rather than multiple mutexes (one per category of state)
 - *Open question*: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
 
 
+### Error message priority and interconnection between type errors and mode errors
+
+#### Context
+
+#### Challenge
+
+#### Approach
+
+#### Take-away
+
+
 ### Dealing with exception polymorphism
 
 #### Context
