@@ -338,6 +338,20 @@ let () =
 
 - Using a `fork-join` function would have help us refine: (1) when parallelisation is needed and possible and, (2) what has to be shared between the two domains at each fork.  <!-- TODO : more explanation -->
 
+### Dealing with top level mutable state 
+
+`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t`.
+
+```ocaml
+(* Before: nonportable, can't be shared *)
+let res = ref []
+
+(* After: portable, accessible under the mutex *)
+let res : (typedtree, 'k) Capsule.Data.t =
+  Capsule.Data.create (fun () -> ref [])
+```
+
+For the vendored code, which we can't modify, the problem is harder and is addressed in the next section.
 
 ### Integrating vendored code
 
