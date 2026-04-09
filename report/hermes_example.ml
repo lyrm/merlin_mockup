@@ -239,3 +239,198 @@ let wrap_config () =
   wrapped 
   (* error: local, expected global *)
 *)
+
+(* ERROR MESSAGE EXAMPLE *)
+
+(* ****************************************** *)
+(* open! Await
+
+type 'a msg = Empty | Msg of 'a @@ contended portable
+
+let foo mutex (capsule_msg : (_ ref, 'k) Capsule_expert.Data.t) =
+  let await = Await_blocking.await Terminator.never in
+  (Mutex.with_key await mutex ~f:(fun key ->
+       let #(msg, key) =
+         Capsule.Expert.Key.access key ~f:(fun access ->
+             {
+               Modes.Aliased.aliased =
+                 !(Capsule.Data.unwrap ~access capsule_msg);
+             })
+       in
+
+       let #((), key) =
+         Capsule.Expert.Key.access key ~f:(fun access ->
+             Capsule.Data.unwrap ~access capsule_msg := Empty)
+       in
+
+       #(msg, key)))
+    .aliased
+
+let foo () =
+  let bar (i : int) = exclave_ Some i in
+
+  let l = Core.List.init__stack 10 ~f:bar in
+  () *)
+
+(* ****************************************** *)
+
+(* type 'a msg = Empty | Msg of int option
+
+(* Without annotation: fails — compiler doesn't know x crosses modes *)
+let f par x =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+  in
+  match v with
+  | Empty -> Empty
+  | Msg None -> Msg (Some 1)
+  | Msg (Some n) -> Msg (Some (n ^ 1))
+(* Error: x is "shared" but expected "uncontended" *)
+
+(* With annotation: works — int crosses all modes *)
+let g par (x : int) =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+  in
+  v + 1 *)
+(* Compiles! *)
+(* 
+type msg = Empty | Msg of int option
+
+(* Without annotation *)
+let f par x =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+  in
+  match v with Empty -> Empty | Msg opt -> Msg (Option.map (( + ) 1) opt)
+(* Error: x is "shared" but expected "uncontended" *)
+
+(* With annotation: compiles! *)
+let g par (x : msg) =
+  let #(v, ()) =
+    Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+  in
+  match v with Empty -> Empty | Msg opt -> Msg (Option.map (( + ) 1) opt) *)
+
+(* ****************************************** *)
+
+(* let make () = exclave_ stack_ ("hello", 42)
+
+(* f returns local (string * int) — mode error.
+   g calls f and uses the result as int — type error.
+   But g never sees the type error because f doesn't compile. *)
+
+let f () =
+  let p = make () in
+  p
+
+let g () =
+  let x : int = f () in
+  x + 1
+
+(* Fix *)
+let make () = exclave_ stack_ ("hello", 42)
+
+let f () =
+  let p = make () in
+  snd p
+
+(* Now the type error in g becomes visible *)
+let g () =
+  let x : int = f () in
+  x + 1 *)
+
+(* ****************************************** *)
+
+(* 
+open! Await
+
+let main _par =
+  let (P mutex) = Capsule.Mutex.create () in
+  let cond = Mutex.Condition.create () in
+  let counter = Capsule.Data.create (fun () -> ref 0) in
+  let await = Await_blocking.await Terminator.never in
+  Mutex.with_key await mutex ~f:(fun key ->
+      let key = Mutex.Condition.wait await cond ~lock:mutex key in
+      let #((), key) =
+        Capsule.Expert.Key.access key ~f:(fun access ->
+            let value = Capsule.Data.unwrap ~access counter in
+            value := !value + 10)
+      in
+      #((), key));
+  () *)
+
+(* *********** exception polymorphism  ************ *)
+
+(* ****************************************** *)
+
+(* 
+type e : value mod contended portable = Exn of exn @@ contended portable
+
+let add_error f : e = try f () with exn -> Exn exn
+
+exception E of (unit -> int)
+
+let r = ref 42
+
+let foo () =
+  raise
+    (E
+       (fun () ->
+         incr r;
+         !r))
+
+let bar () = add_error foo *)
+
+(* *********** top level mutable state  ************ *)
+
+(* ****************************************** *)
+
+module S = struct
+  type t = { cache : string list; index : int }
+
+  let cache : t option ref = ref None
+
+  let get_cache () =
+    match !cache with
+    | Some { cache = _ :: []; _ } as c -> c
+    | None | Some _ -> Some { cache = []; index = 0 }
+
+  let return_and_cache status =
+    cache := Some { cache = status; index = List.length status };
+    status
+end
+
+module Soxcaml = struct
+  type tt = { cache : string list; index : int }
+  type t = (tt, Lock.k) Capsule.Data.t
+
+  let cache = Capsule.Data.create (fun () -> ref None)
+
+  let get_cache () =
+    let await = Await_blocking.await Terminator.never in
+    Mutex.with_key await Lock.mutex ~f:(fun key ->
+        let #(cache, key) =
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let v = Capsule.Data.unwrap ~access cache in
+              { Modes.Aliased.aliased = !(v : tt option ref) })
+        in
+        cache.aliased)
+
+  let return_and_cache status =
+    let await = Await_blocking.await Terminator.never in
+    Mutex.with_key await Lock.mutex ~f:(fun key ->
+        let #((), key) =
+          Capsule.Expert.Key.access key ~f:(fun access ->
+              let cache = Capsule.Data.unwrap ~access cache in
+              let new_v =
+                match !cache with
+                | Some S.{ cache = _ :: []; _ } as c -> c
+                | None | Some _ -> Some { cache = []; index = 0 }
+              in
+              cache := new_v)
+        in
+
+        #((), key));
+    S.return_and_cache status
+end

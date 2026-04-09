@@ -71,43 +71,26 @@ TODO : add sequence diagram from Lambda World
 
 - make us more aware of the data races: we had to deal with all data races and find solution to ensure DRF even with the vendored code
 
-### Effect handling safety 
 
-### ? 
+### Make us think of a better design for merlin-domains
 OxCaml: did it help with the general design ? 
 - fork/join : better design -> be more aware of what is shared (read/write) and use the right level of synchronization 
 
 
 ## The challenges
 
-Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered, categorized into expected and non-expected ones. As noted before, we focused our effort on leveraring OxCaml DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges related to these features below.
+Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered. As noted before, we focused our effort on leveraring OxCaml DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges specifically related to these features below.
 
 When evaluating the feasability of the project, we identified the following expected challenges:
 - learning OxCaml,
-- which library to use to leverage parallelism with DRF ? 
+- which concurrency model to use,  
 - how to guarantee DRF without changing the code vendored from OCaml typer ? 
 
 We also encountered some non-expected challenges: 
-<!-- - the complexity of the OxCaml API and the interdependency between the different features of OxCaml,  -->
-<!-- Note: I add the previous part in the Learning OxCaml part. -->
-- dealing with exception polymorphism,
+- the interdependency between the different features of OxCaml (modes, modalities, kinds, unboxed types) to do multicore programming in OxCaml,
 - errors messages: understanding them but also understanding the interconnexion between type error and mode error. 
- 
 
-<!-- ### The non-expected ones
-
-- constant changes in OxCaml API 
-
-- error messages about mode before type (and the priority of the error messages)
-
-- the need to understand almost everything related to modes / the interdependency between the different features of OxCaml to be able to do anything in OxCaml
-    - all the modes are required to do multicore programming in OxCaml (and not just portable and contented)
-    - modalities (that are kind of an exception to mode being deep (TODO check this affirmation))
-    - kinds
-    - unboxed types (used in the capsule API)
-
-- exception polymorphism -->
-
+The two main challenges ended up being learning OxCaml and dealing with the vendored code. They are the core reasons we chose to portabilize the mockup instead of merlin-domains itself: we needed a simpler codebase to learn and explore possible approaches on how to deal with vendored code.  
 
 ### Learning OxCaml
 
@@ -115,15 +98,15 @@ We also encountered some non-expected challenges:
  We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. This was a significant challenge, as OxCaml has a steep learning curve. 
 
 #### Challenge
-We encountered two main challenges in learning OxCaml: understanding modes, and navigating the capsule API.
+We encountered two main challenges as newcomers to OxCaml trying to portabilize multicore code: understanding modes, and navigating the capsule API.
 
-The first challenge was the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning often involves much trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. Building familiarity takes time.
+The first challenge is related to the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning OxCaml translated for us in many trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. It took us quite some time to even start portabilizing the code.
 
 The second challenge was navigating the capsule API, which was the more significant challenge of the two, for several reasons:
 
-- *Size.* The API surface is large, making it hard to know which part to focus on when starting out.
+- *Size.* The API is very long, making it hard to know which part to focus on when starting out.
 
-- *Fragmentation.* The API is exposed through many libraries: [`capsule0`](https://github.com/janestreet/capsule0), [`capsule`](https://github.com/janestreet/capsule), [`await`](https://github.com/janestreet/await), `portable`, `core`. Each provides a different subset or wrapping of the same underlying types. Although they are all mostly* compatible, they do not expose the same functions, which makes it hard to know where to look for what one needs, especially combined with the size of these APIs.
+- *Fragmentation.* The API is exposed through many libraries: `capsule0`, `capsule`, `await`, `portable`, `core`. Each provides a different subset or wrapping of the same underlying types. Although they are all mostly* compatible, they do not expose the same functions, which makes it hard to know where to look for what one needs, especially combined with the size of these APIs.
 
 **Mostly compatible, because there are some incompatibilities between the different libraries. This, for example, does not compile.*
 
@@ -145,12 +128,12 @@ let read () =
       !(Capsule.Data.unwrap ~access data))
 ```
 
-- *Mode prerequisites.* Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, uniqueness for key, and portability and linearity for the callbacks crossing capsule boundaries. This means one cannot learn how to ensure DRF in isolation if any sharing is required. A broad understanding of the mode system is a prerequisite.
+- *Mode prerequisites.* Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, linearity and uniqueness for key usage. Kinds and modalities are also needed to understand mode crossing and make everything work. Learning just the portability and contention axes is not enough.
 
-- *Lack of guided material.* The API is well documented in its `.mli` files, but reference documentation alone is not enough to build an intuition for when to use each way of opening a capsule (access, password, key). More guided material, like tutorials or annotated examples showing why one approach is needed over another, would have made a real difference. 
-<!-- more explanation -->
+- *Lack of guided material.* The API is well documented in its `.mli` files, but reference documentation alone is not enough to build an understanding for when to use each way of opening a capsule (access, password, key). 
+<!-- More guided material, like tutorials or annotated examples showing why one approach is needed over another, would have made a real difference.  -->
 
-- *Verbosity.* The API requires a lot of boilerplate, which tends to hid the core logic and make it harder to understand what is going on, especially for concurrent algorithms. Here is an example, extracted from the message-passing data structure we implemented for `merlin-domains`, of how the API can make simple logic look more complex:
+- *Verbosity.* Using the API requires a lot of boilerplate code, which tends to hide the core logic and make it harder to understand what is going on, especially for concurrent algorithms. Here is an example of how the API can make simple logic look more complex. This code is mostly extracted from the message-passing data structure we implemented for `merlin-domains`:
 
 In OCaml: 
 ```ocaml
@@ -184,8 +167,8 @@ let send_and_wait t new_msg =
   Mutex.with_key await t.mutex ~f:(fun key ->
       let #((), key) =
         Capsule.Expert.Key.access key ~f:(fun access ->
-            let value = Capsule.Data.unwrap ~access t.msg in
-            value := new_msg)
+            let msg = Capsule.Data.unwrap ~access t.msg in
+            msg := new_msg)
       in
       Mutex.Condition.signal t.cond;
       let key = Mutex.Condition.wait await t.cond ~lock:t.mutex key in
@@ -202,29 +185,21 @@ let send_and_wait t new_msg =
       loop key [@nontail])
 ```
 
-The boilerplate code required to use the capsule API makes it harder to understand the core logic of the function, even for this very simple example. 
+The core logic is the same in both versions (set the message, signal, wait until cleared), but in OxCaml it is interleaved with capsule unwrapping, key threading, and mode annotations, which makes it harder to follow at a glance.
 
 #### Approach
-To learn OxCaml, the tutorials on [oxcaml.org](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) were a great help, as well as discussions with the JS team (special thanks to Liam and Aspen). To use the capsule API, we end up doing a lot of trial and errors as it is lacking some tutorials of its own.
-
-<!-- Example about predefining a type k -->
-
-
-<!-- TODO: too negative  -->
+To learn OxCaml, the [oxcaml.org tutorials](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) and discussions with the JS team (special thanks to Liam and Aspen) were essential. For the capsule API specifically, we relied mostly on trial and error as no dedicated tutorial exists.
 
 #### Take-away
-The documentation is pretty good for a lot of subjects, but the learning curve is still steep. We had to read a lot and have many discussions to understand what we were doing wrong. This is expected for a new language, but we think this could be helped with a different approach for tutorials and better editor support. This is discussed below in **LINK**.
-<!-- *TODO link*. -->
+The learning curve could be made less steep with more guided material for the capsule API and better editor support for modes. We discuss concrete suggestions in the [editor support](#helping-the-user-through-editor-support) and [documentation](#making-the-learning-curve-less-steep) sections below.
 
 
-### Finding the right parallelism primitive
-
-<!-- TODO: Concurrent - spawn domain but report. -->
+### Finding the right concurrency primitive
 
 #### Context
- `merlin-domains` uses a two-domain architecture with a message-passing coordination mechanism: the main domain handles request dispatching while a dedicated secondary domain performs typing (and actually the computation of the whole merlin pipeline). The two domains communicate through a shared synchronization structure using a blocking send/acknowledge protocol. This is not a scheduler in the traditional sense but rather a fixed assignment of roles with explicit inter-domain communication and synchronization.
+`merlin-domains` uses a two-domain architecture with a message-passing coordination mechanism: the main domain handles request dispatching while a dedicated secondary domain performs the bulk of the computation (typing and the rest of the merlin pipeline). The two domains communicate through a shared synchronization structure using a blocking send/acknowledge protocol.
 
-Here is the general structure of the main domain and the secondary domain (typer) in `merlin-domains`:
+Here is a simplified version of the main function, in OCaml, that illustrates the interaction between the main domain and the secondary domain (typer) in `merlin-domains`:
 ```ocaml
 let main () =
   (* Hermes is a data structure used to share data in between domains *)
@@ -249,7 +224,7 @@ let main () =
          | Server.Close -> raise Closing
          | Server.Config config ->
              (* Send work to the typer domain *)
-             Hermes.send_and_wait hermes (Config cfg);
+             Hermes.send_and_wait hermes (Config config);
              (* Does more stuff and answer the request *)
              let r = run config hermes in
              answer r)
@@ -259,11 +234,10 @@ let main () =
   Domain.join typer
 ```
 
-
 #### Challenge
-We were planning to use `Parallel.fork_join2` and to rework our design to fit its fork/join model. However this scheduler does not garantee true parallelism: the scheduler may run tasks as fibers on the same domain. This is a problem because our message-passing data structure uses blocking acknowledgement, which would lead to deadlocks if the two tasks are run on the same domain.
+We initially planned to use `Parallel.fork_join2` and rework our design to fit its fork/join model. However, `Parallel` provides *parallelism*, not *concurrency*: it is always a valid schedule to run one task to completion before starting the other. Our message-passing data structure requires *concurrency*: one task blocks on a condition variable until the other signals it. With `Parallel`, this leads to a deadlock.
 
-Extract of the message passing data structure written in OCaml. 
+Extract of the message-passing data structure written in OCaml:
 ```ocaml
 type 'a t = { mutex : Mutex.t; cond : Condition.t; mutable msg : 'a option }
 
@@ -276,71 +250,22 @@ let send_and_wait t msg =
       Condition.wait t.cond t.mutex
     done)
 ```
-`send_and_wait` can't progress without calling another domain calling `Condition.signal` in parallel, which is not guaranteed with `Parallel.fork_join2`.
+`send_and_wait` blocks until the other task calls `Condition.signal`. If the scheduler runs the first task to completion before starting the second, the signal never arrives.
 
-`Concurrent` will work but will not provided any additional value over `Multicore` as the api provided `spawn_join` functions. It would also add a dependency. 
+`Concurrent` (which guarantees that runnable tasks make progress within finite time) would fit our needs, but at the time it did not provide additional value over `Multicore` for our use case.
 
 #### Approach
-The best match we found for our use case is `Multicore` library, which did not require any change in the multicore design of `merlin-domains` and provided true parallelism.
-
-<!-- 
-```ocaml
-let () =
-  (* Hermes is a data structure used to share data in between domains *)
-  let hermes = Hermes.create (fun () -> None) in
-  let counter = Atomic.make 0 in
-
-  let ( let* ) spawn_result f =
-    match spawn_result with Multicore.Spawned -> f () | _ -> assert false
-  in
-
-  let* () =
-    Multicore.spawn
-      (fun () ->
-        let rec loop () =
-          match Hermes.recv_clear hermes with
-          | Config config ->
-              (* some computation *)
-              process config hermes;
-              loop ()
-          | Msg `Closing -> ()
-        in
-        loop ();
-        Atomic.incr counter)
-      ()
-  in
-
-  (try
-     Server.listen ~handle:(fun req ->
-         match req with
-         | Server.Close -> raise Closing
-         | Server.Config config ->
-             (* Send work to the typer domain *)
-             Hermes.send_and_wait hermes (Config cfg);
-             (* Does more stuff and answer the request *)
-             let r = run config hermes in
-             answer r)
-   with _ -> ());
-
-  Hermes.send_and_wait hermes (Msg `Closing);
-  Atomic.incr counter;
-
-  (* Joining *)
-  while Atomic.get counter <> 2 do
-    Thread.yield ()
-  done
-``` 
--->
+The best match we found for our use case is the `Multicore` library, which spawns actual domains and thus provides the concurrency guarantee we need: both tasks run independently and can make progress regardless of whether the other is blocked. The resulting code is very similar to the original `Domain.spawn` version in OCaml, except it provides the right modes to ensure DRF.
 
 #### Take-away
 
-- There are very little documentation about `Concurrent` and `Multicore` libraries, or about the limitation of `Parallel`. Only `Parallel` is mentioned in the oxcaml.org documentation. This should be improved to help users make the right choice for their use case. 
+- There is very little documentation about which scheduling library to use for what. Only `Parallel` is covered in the oxcaml.org documentation; `Concurrent` and `Multicore` are not mentioned. Guidance on when to use each would help users avoid the kind of deadlock we encountered.
 
-- Using a `fork-join` function would have help us refine: (1) when parallelisation is needed and possible and, (2) what has to be shared between the two domains at each fork.  <!-- TODO : more explanation -->
+- Using a fork-join design would have helped us refine: (1) when concurrency (rather than parallelism) is needed, and (2) what must be shared between the two tasks at each fork.  <!-- TODO : LINK -->
 
 ### Dealing with top level mutable state 
 
-`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t`.
+`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t` (or in an `Atomic.t` if the operation performed on the value are translatable in atomic operations).
 
 ```ocaml
 (* Before: nonportable, can't be shared *)
@@ -351,7 +276,7 @@ let res : (typedtree, 'k) Capsule.Data.t =
   Capsule.Data.create (fun () -> ref [])
 ```
 
-For the vendored code, which we can't modify, the problem is harder and is addressed in the next section.
+For the vendored code, which we should not modify, the problem is more complex and is addressed in the next section.
 
 ### Integrating vendored code
 
@@ -359,11 +284,9 @@ For the vendored code, which we can't modify, the problem is harder and is addre
 
 Dealing with vendored code was one of the main reasons we portabilized the mock-up rather than the real project: we needed a simpler codebase to explore possible approaches.
 
-`merlin` vendors a large portion of the OCaml compiler, in particular the typer (`src/ocaml/`). This vendored code is written in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields on type nodes. This vendored code cannot be rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase.
+`merlin` vendors a large portion of the OCaml compiler. It is written  in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields. This vendored code should not be deeply rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase. Here we choose the extreme option of not altering the code at all. A similar situation would arise with any external library that is not portabilized to OxCaml: we want to use it as is, without modifying it, but we still need to interface with it from OxCaml code.
 
-At the same time, both domains call into vendored code. The worker domain runs the typer, and the main domain runs analysis code (calling functions like `Ctype.unify`, `Printtyp.wrap_printing_env`, `Env.find_type`, etc.) on the partial result. During the partial result scenario, both domains execute vendored code concurrently, creating data races on shared mutable state.
-
-This situation is not specific to merlin: any project that depends on non-OxCaml libraries faces the same question. The vendored code can't benefit from OxCaml's mode system directly, but we still want the rest of the codebase to get some DRF guarantees when interfacing with it.
+In `merlin-domains`, both domains call into vendored code: the worker domain runs the typer, and the main domain runs analysis code (which also calls vendored functions like `Ctype.unify` or `Printtyp.wrap_printing_env`). During the partial result scenario, both execute concurrently, creating data races on the vendored mutable state.
 
 #### Challenge
 
@@ -377,11 +300,12 @@ module Vendored : sig
   val compute : int -> bool
 end = struct
   type env = { entries : string list ref }
-  (* Hidden global state — not visible in the signature *)
   let global_counter = ref 0
+
   let add_entry env s =
     env.entries := s :: !(env.entries);
     incr global_counter
+  
   let compute n =
     global_counter := !global_counter + n;
     !global_counter mod 2 = 0
@@ -399,13 +323,13 @@ end = struct
 end
 ```
 
-This makes the functions callable from both domains, but nothing prevents two domains from calling them concurrently. Both `add_entry` and `compute` mutate hidden global state (`global_counter`), and `add_entry` also mutates `env` — so calling any combination of these from two domains in parallel is a data race. The naive wrapper compiles, but it is no safer than plain OCaml.
+This makes the functions callable from both domains, but nothing prevents two domains from calling them concurrently. Both `add_entry` and `compute` mutate hidden global state so calling any combination of these from two domains in parallel is a data race. The naive wrapper compiles, but it is no safer than plain OCaml.
 
 We needed to find a way to leverage OxCaml's mode system to enforce mutual exclusion on vendored function calls at compile time, without being able to change the vendored code itself.
 
 #### Approach
 
-Our approach is to require a branded `Capsule.Access.t` to call any wrapper function. We create a single capsule/mutex pair and tie the wrapper to its brand `k`. We also wrap the visible mutable state (`Vendored.env`) in a `Capsule.Data.t`, so that unwrapping it requires the same `Access.t`:
+Our approach is to require a branded `Capsule.Access.t` to call any wrapper function. We create a single mutex and tie the wrapper to its brand `k`. We also wrap the visible mutable state (`Vendored.env`) in a `Capsule.Data.t`, so that unwrapping it requires the same `Access.t`:
 
 ```ocaml
 module Lock = Capsule.Mutex.Create ()
@@ -434,7 +358,9 @@ end
 
 The key idea: the only way to obtain a `k Capsule.Access.t` is through `Lock.mutex`, so callers are forced to hold the mutex before calling any wrapper function. Since `k` is abstract, no other mutex can produce a compatible `Access.t`. This gives a compile-time guarantee that all vendored code runs under mutual exclusion.
 
-For `add_entry`, the `Access.t` serves a double purpose: it is needed both to unwrap `env` from its `Capsule.Data.t` and to authorize the call (which mutates hidden global state). For `compute`, which does not take an `env` argument, the `Access.t` only serves as an authorization token: it is not structurally needed, but requiring it ensures the caller holds the mutex. In both cases, the wrapper is the trust boundary: `Obj.magic_portable` casts are used inside, and the wrapper author must verify that the vendored functions are safe to call under the lock. Outside the wrapper, the compiler enforces the discipline: no `Access.t`, no call.
+For `add_entry`, the `Access.t` serves a double purpose: it is needed both to unwrap `env` from its `Capsule.Data.t` and to authorize the call (which mutates hidden global state). Also wrapping `env` in a capsule is not strictly necessary for the mutex discipline, it makes it explicit in the signature that `env` is stateful.
+
+For `compute`, which does not take an `env` argument, the `Access.t` only serves as an authorization token: it is not structurally needed, but requiring it ensures the caller holds the mutex. In both cases, the wrapper is the trust boundary: `Obj.magic_portable` casts are used inside, and the wrapper author must verify that the vendored functions are safe to call under the lock. Outside the wrapper, the compiler enforces the discipline: no `Access.t`, no call.
 
 On the caller side, this looks like:
 
@@ -447,12 +373,7 @@ Mutex.with_key await Lock.mutex ~f:(fun key ->
         ()))
 ```
 
-A single mutex does not mean a single big critical section: the caller controls the granularity of each acquisition, and parallelism comes from the gaps between them.
-
-We chose a single mutex rather than multiple mutexes (one per category of state) because vendored functions often touch multiple categories of state in a single call. For instance, `Ctype.unify` mutates `trail`, `current_level`, `type_expr` fields, and `abbreviations` all at once. Multiple mutexes would require acquiring several locks atomically, introducing deadlock risks. A single mutex avoids lock ordering issues entirely.
-
-<!-- The full example with the Vendored, Wrapper and test code is in
-     report/vendored_code_example.ml -->
+We use a single mutex for all vendored state. This does not mean a single big critical section: the caller controls when to acquire and release the lock, and concurrency comes from the gaps between acquisitions. We chose a single mutex because many vendored functions touch multiple state at once, making fine-grained locking impractical and deadlock-prone.
 
 #### Take-away
 
@@ -463,11 +384,14 @@ We chose a single mutex rather than multiple mutexes (one per category of state)
 - *The wrapper maintenance cost seems acceptable for merlin*: it only needs updating when the vendored API surface changes (new or modified function signatures), not for internal refactors.
 
 - *Open question*: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
+
+- *OxCaml to OCaml side note*: As a side note, we wondered whether it would be possible to write the concurrent parts of a project in OxCaml for the DRF guarantees, then extract plain OCaml from it. This would probably require some form of code extraction, but could be useful for projects that can't fully switch to OxCaml.
+
 ### Interaction between type errors and mode errors
 
 We document here two non-obvious behaviors with mode errors that we encountered. We propose no solution; these are observations that may be worth investigating. Both come from the fact that mode crossing depends on the type of a value, and the type may not be fully resolved when the mode is checked.
 
-#### Mode errors that disappear with a type annotation
+#### Mode errors fixed with a type annotation
 
 ```ocaml
 type msg = Empty | Msg of int option
@@ -478,12 +402,13 @@ type msg = Empty | Msg of int option
 let foo par x =
   let #(v, ()) =
     Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
+    (*                                          ^       *)
     (*  Error: x is "shared" but expected "uncontended" *)
   in
   match v with Empty -> Empty | Msg opt -> Msg (Option.map (( + ) 1) opt)
 
 (* With annotation: [msg] is known at the point where modes are checked.
-   [msg] is immutable data, so it crosses contention. Compiles. *)
+   [msg] is immutable data, so it crosses contention. It compiles. *)
 let foo' par (x : msg) =
   let #(v, ()) =
     Parallel_kernel.fork_join2 par (fun _par -> x) (fun _par -> ())
