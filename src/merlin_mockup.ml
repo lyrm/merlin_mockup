@@ -26,14 +26,14 @@ let () =
                | Server.Close -> raise Closing
                | Server.Config config ->
                    run config hermes;
-                   Hermes.apply hermes ~f:(fun _ pipeline ->
+                   Hermes.apply_with_access hermes ~f:(fun access _ pipeline ->
                        let evals =
                          match pipeline with
                          | None -> failwith "No pipeline found (main)"
                          | Some p -> p.Mopipeline.result
                        in
                        let res = Motyper.(evals.typedtree) in
-                       Moparser_wrapper.to_string (ref (List.rev !res))))
+                       Moparser_wrapper.to_string ~access (ref (List.rev !res))))
          with
         | Closing ->
             Log.debug 0 "Closing requested received.";

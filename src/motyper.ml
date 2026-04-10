@@ -69,7 +69,10 @@ let type_implementation config ~handler typedtree parsedtree =
       | exn -> raise (Exception_after_partial exn)
     end
 
-let reset_typer_state () = Hermes.protect_capsule res ~f:(fun res -> res := [])
+let reset_typer_state () =
+  Hermes.protect_capsule_with_access res ~f:(fun access res ->
+      Moparser_wrapper.reset ~access ();
+      res := [])
 
 let run config hermes ~(handler @ local) parsedtree =
   reset_typer_state ();

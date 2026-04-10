@@ -93,6 +93,17 @@ let apply t ~(f : _ -> _ -> ('b : immutable_data)) =
   in
   aliased
 
+let apply_with_access t ~(f : _ -> _ -> _ -> ('b : immutable_data)) =
+  let { Modes.Aliased.aliased; _ } =
+    Mutex.with_access (Await_blocking.await Terminator.never) global_mutex
+      ~f:(fun access ->
+        let pipeline = Capsule.Data.unwrap ~access t.data in
+        let msg = Capsule.Data.unwrap ~access t.msg in
+        let result = f access !msg !pipeline in
+        { Modes.Aliased.aliased = result })
+  in
+  aliased
+
 let map t ~f =
   let data =
     (Mutex.with_password (Await_blocking.await Terminator.never) global_mutex
@@ -133,5 +144,15 @@ let protect_capsule (capsule : ('a, k) Capsule.Data.t) ~(f : 'a -> 'b) :
       ~f:(fun access ->
         let data = Capsule.Data.unwrap ~access capsule in
         { Modes.Aliased.aliased = f data })
+  in
+  aliased
+
+let protect_capsule_with_access (capsule : ('a, k) Capsule.Data.t)
+    ~(f : k Capsule.Access.t -> 'a -> 'b) : ('b : immutable_data) =
+  let { Modes.Aliased.aliased; _ } =
+    Mutex.with_access (Await_blocking.await Terminator.never) global_mutex
+      ~f:(fun access ->
+        let data = Capsule.Data.unwrap ~access capsule in
+        { Modes.Aliased.aliased = f access data })
   in
   aliased
