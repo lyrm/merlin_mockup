@@ -4,11 +4,12 @@
 
 *Author:* Carine Morel
 
-*Reviewers:* Sonja Heinze, Timéo Arnouts, Ulysse Gérard, Xavier Van de Woestyne
+*Reviewers:* Timéo Arnouts, Ulysse Gérard, Sonja Heinze, Xavier Van de Woestyne
 
 *Supervisor:* Sonja Heinze
 
 This report documents our experience portabilizing a multicore OCaml project to OxCaml. We describe the challenges we encountered, the solutions we found, and suggestions for improving the OxCaml developer experience.
+
 
 <!-- TODO : Add a note about the fact that we only took advantage of the DRF axes, not the other ones. The mockup is btw only useful for these axes. -->
 
@@ -16,17 +17,9 @@ This report documents our experience portabilizing a multicore OCaml project to 
 
 ## Introduction
 
-<!-- This part is meant to be kept short, interesting details being developed in further sections. The objective is to give the context and how we encounter the main challenges we face.
-
-
-- DONE Quick overview
-- ~~TODO (?) Message passing data structure : not in this part~~
-- DONE What did we actually portabilize: the mockup
-- TODO: add a short paragraph explaining that we portabilized the mock-up rather than the real project, and why. -->
-
 ### Background of the contributors
 
-Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Neither of us had prior practical experience with OxCaml or Rust.
+Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Neither of us had prior practical experience with OxCaml or with ownership-based type systems like Rust's.
 
 - *Carine* — Senior engineer. Wrote the multicore part of `merlin-domains` as well as the original mock-up. Had read the three original blog posts about OxCaml roughly a year before the project and had some familiarity with the concepts from internal discussions, but no hands-on experience.
 
@@ -34,32 +27,27 @@ Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Ne
 
 ### About `merlin-domains`
 
-We begin with a brief overview of the project and the context of our work: `merlin-domains` (TODO: add link to repo) is an experimental branch of merlin that aims to leverage multicore programming to improve Merlin's performance. The general idea is to run in parallel a secondary domain to do most of the computation (typing) while the main domain mostly does query dispatching and execution of the query logic. This enables three performance-oriented features:
+[`merlin-domains`](https://github.com/ocaml/merlin/tree/merlin-domains) is an experimental branch of merlin that aims to leverage multicore programming to improve Merlin's performance. The general idea is to run a secondary domain in parallel to do most of the computation (typing) while the main domain mostly does query dispatching and execution of the query logic. This enables three performance-oriented features:
 
-- Early type return: if permitted by the request, the secondary domain shares a partial typedtree with the main domain as soon as possible, so the main domain can perform the final analysis on it and answer the request without waiting for the full buffer to be typed. Meanwhile, the secondary domain goes back to finish typing the rest of the buffer. This optimization is especially useful for large buffers modified near the beginning.
+- **Early type return**: if permitted by the request, the secondary domain shares a partial typedtree with the main domain as soon as possible, so the main domain can perform the final analysis on it and answer the request without waiting for the full buffer to be typed. Meanwhile, the secondary domain goes back to finish typing the rest of the buffer. This optimization is especially useful for large buffers modified near the beginning.
 
-- Parallelization: the two performance bottlenecks in Merlin are the typing and the final analysis. By running them in parallel thanks to early type return, we can reduce the overall latency of a request. This proves to be difficult as both steps mutate the shared state, creating data races. Some work is still needed to analyse the data races, and find finer-grain solution to avoid them and make the parallelization work better.
+- **Parallelization**: the two performance bottlenecks in Merlin are the typing and the final analysis. By running them in parallel thanks to early type return, we can reduce the overall latency of a request. This is difficult because both steps mutate shared state, creating data races. In the original OCaml version, some work is still needed to analyze the data races and find finer-grained solutions to avoid them.
 
-- Cancellation mechanism: once the early type return is achieved, the main domain is back to listening for new requests while the secondary domain may still be typing the end of the buffer. If a new request arrives, the main domain can send a cancellation message to the secondary domain to stop the current work and start processing the new request.
-  
-TODO : add sequence diagram from Lambda World
+- **Cancellation mechanism**: once the early type return is achieved, the main domain is back to listening for new requests while the secondary domain may still be typing the end of the buffer. If a new request arrives, the main domain can send a cancellation message to the secondary domain to stop the current work and start processing the new request.
+
+  ![Sequence diagram for merlin-domains](complete_graph_with_mutex.svg)
+
+These features create the concurrency patterns that OxCaml's mode system is designed to make safe: shared mutable state, cross-domain communication, and concurrent access to the same data.
 
 ### Reasons for portabilizing `merlin-domains` to OxCaml
 
-`merlin-domains` is a real-world multicore OCaml project, making it a compelling candidate for portabilization to OxCaml:
+- **Tractable multicore design:** `merlin` is a large, real-world project, but its multicore design is relatively simple: only two domains, no scheduler, and a straightforward message-passing data structure. It also features shared mutable state and data races, which OxCaml statically prevents: the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
 
-- **Right level of complexity:** `merlin` is a large, real-world project, far from a toy example: portabilizing it is genuinely challenging. However, its multicore design is relatively simple (only two domains, no scheduler), which makes it a tractable first target. It also features shared mutable state and data races, which OxCaml statically prevents: this means the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
+- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a [mock-up of the project](https://github.com/tarides/merlin_mockup). Since we were not very familiar with OxCaml when we started, the mock-up also served as a fallback in case we could not portabilize the real project, which ended up being the case. The mock-up was gradually extended to incorporate patterns from the real project that we identified as potential blockers for portabilization.
 
-- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a mock-up of the project (TODO: add link). Since we were not very familiar with OxCaml when we started, the mock-up also served as a fallback in case we could not portabilize the real project, which ended up being the case (TODO: link to a more complete explanation ?). The mock-up was progressively complexified to incorporate patterns from the real project that we identified as potential blockers for portabilization.
+- **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from the OCaml typer that contains mutable values is a concrete instance of this challenge (see [Integrating vendored code](#integrating-vendored-code)).
 
-- **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether it comes from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from OCaml typer that contains mutable values is a concrete instance of this challenge (TODO: link to below).
-
-- **Message-passing data structure:** `merlin-domains` relies on a relatively simple message-passing data structure, which makes it an interesting starting point for exploring how such patterns translate to OxCaml (TODO: link to below).
-
-<!-- TODO: did I miss any other reason -->
-
-<!-- TODO :  Past me: should we do a section about the different features we add to the mockup to simulate poossible blockers for the portabilization ? Or just a line about the fact that we complexified the mockup to introduce some of the challenges we identified in the real project ? -->
-<!-- Current me : but we do that with the challenges below, right ? -->
+As explained below, we ended up portabilizing the mock-up instead of the real project, mainly because of the learning curve and the complexity of dealing with vendored code.
 
 ## The successes
 ### Learning OxCaml
@@ -79,18 +67,18 @@ OxCaml: did it help with the general design ?
 
 ## The challenges
 
-Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered. As noted before, we focused our effort on leveraring OxCaml DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges specifically related to these features below.
+Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered. As noted before, we focused our effort on leveraging OxCaml's DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges specifically related to these features below.
 
-When evaluating the feasability of the project, we identified the following expected challenges:
+When evaluating the feasibility of the project, we identified the following expected challenges:
 - learning OxCaml,
 - which concurrency model to use,  
 - how to guarantee DRF without changing the code vendored from OCaml typer ? 
 
 We also encountered some non-expected challenges: 
 - the interdependency between the different features of OxCaml (modes, modalities, kinds, unboxed types) to do multicore programming in OxCaml,
-- errors messages: understanding them but also understanding the interconnexion between type error and mode error. 
+- error messages: understanding them but also understanding the interaction between type errors and mode errors.
 
-The two main challenges ended up being learning OxCaml and dealing with the vendored code. They are the core reasons we chose to portabilize the mockup instead of merlin-domains itself: we needed a simpler codebase to learn and explore possible approaches on how to deal with vendored code.  
+The two main challenges ended up being learning OxCaml and dealing with the vendored code.
 
 ### Learning OxCaml
 
@@ -106,9 +94,7 @@ The second challenge was navigating the capsule API, which was the more signific
 
 - *Size.* The API is very long, making it hard to know which part to focus on when starting out.
 
-- *Fragmentation.* The API is exposed through many libraries: `capsule0`, `capsule`, `await`, `portable`, `core`. Each provides a different subset or wrapping of the same underlying types. Although they are all mostly* compatible, they do not expose the same functions, which makes it hard to know where to look for what one needs, especially combined with the size of these APIs.
-
-**Mostly compatible, because there are some incompatibilities between the different libraries. This, for example, does not compile.*
+- *Fragmentation.* The API is exposed through many libraries: [`capsule0`](https://github.com/janestreet/capsule0), [`capsule`](https://github.com/janestreet/capsule), [`await`](https://github.com/janestreet/await), `portable`, `core`. Each provides a different subset or wrapping of the same underlying types. Although they are mostly compatible, they do not expose the same functions, which makes it hard to know where to look for what one needs, especially combined with the size of these APIs. There are also some incompatibilities: for example, the following does not compile:
 
 ```ocaml
 open Await
@@ -265,7 +251,7 @@ The best match we found for our use case is the `Multicore` library, which spawn
 
 ### Dealing with top level mutable state 
 
-`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t` (or in an `Atomic.t` if the operation performed on the value are translatable in atomic operations).
+`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t` (or in an `Atomic.t` if the operations performed on the value are translatable to atomic operations).
 
 ```ocaml
 (* Before: nonportable, can't be shared *)
@@ -284,7 +270,7 @@ For the vendored code, which we should not modify, the problem is more complex a
 
 Dealing with vendored code was one of the main reasons we portabilized the mock-up rather than the real project: we needed a simpler codebase to explore possible approaches.
 
-`merlin` vendors a large portion of the OCaml compiler. It is written  in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields. This vendored code should not be deeply rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase. Here we choose the extreme option of not altering the code at all. A similar situation would arise with any external library that is not portabilized to OxCaml: we want to use it as is, without modifying it, but we still need to interface with it from OxCaml code.
+`merlin` vendors a large portion of the OCaml compiler. It is written in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields. This vendored code should not be deeply rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase. Here we choose the extreme option of not altering the code at all. A similar situation would arise with any external library that is not portabilized to OxCaml: we want to use it as is, without modifying it, but we still need to interface with it from OxCaml code.
 
 In `merlin-domains`, both domains call into vendored code: the worker domain runs the typer, and the main domain runs analysis code (which also calls vendored functions like `Ctype.unify` or `Printtyp.wrap_printing_env`). During the partial result scenario, both execute concurrently, creating data races on the vendored mutable state.
 
@@ -373,7 +359,7 @@ Mutex.with_key await Lock.mutex ~f:(fun key ->
         ()))
 ```
 
-We use a single mutex for all vendored state. This does not mean a single big critical section: the caller controls when to acquire and release the lock, and concurrency comes from the gaps between acquisitions. We chose a single mutex because many vendored functions touch multiple state at once, making fine-grained locking impractical and deadlock-prone.
+We use a single mutex for all vendored state. This does not mean a single big critical section: the caller controls when to acquire and release the lock, and concurrency comes from the gaps between acquisitions. We chose a single mutex because many vendored functions touch multiple pieces of state at once, making fine-grained locking impractical and deadlock-prone.
 
 #### Take-away
 
@@ -440,23 +426,6 @@ let g () =
 The compiler reports the mode error on `p` in `f` and never shows the type error in `g`. Returning `snd p` instead of `p` fixes both: `int` crosses locality, and the type matches `g`'s expectation.
 
 `merlin` already provides a good partial answer to this problem by showing the type error in `g` as a secondary error, but it is still easy to miss the dependency between both errors (obviously not in this oversimplified example).
-
-
-
-<!-- ## Detailed description of the technical challenges we faced and how we solved them (if we did)
-This session should provide concrete examples and a comprehensive explanation of the challenges, how we encountered them and how we solved them or not and why. 
-
-- Learning OxCaml -> mostly solve through discussions and documentation
-  - link to the related discuss post 
-  - tail call and locality 
-
-- Capsule API: from 10 lines to 100 lines (the message passing data structure)
-  - verbosity 
-  - complexity of the API (password, access, key etc..), and compatibility issue between different part of the API (TODO : check is this is still the case)
-
-- The error message about mode can appeared before type it the scope of the mode error is contained in the scope of the type error. It seems like most of the time it is a bad idea to correct the mode error before the type error.
-
-- Vendored code: can't be change. How to do the interface ? -->
 
 
 ## Suggestions for improving the developer experience
@@ -569,6 +538,7 @@ The value "h" is "nonportable"
       which is expected to be "uncontended".
   However, the value "h" highlighted is expected to be "shareable"
     because it is used inside the function at line 7, characters 4-22
+      which is expected to be "shareable".
 ```
 
 The error message already contains all four locations (`state`, `g`, `h`, the closure). Highlighting them in the editor would make the chain immediately visible without having to read the full text.
@@ -653,11 +623,17 @@ Tutorials and documentation explain how things work, but intuition comes from en
 
 Consider the locality axis alone: it involves allocation semantics, compiler optimizations, and several keywords (`local_`, `stack_`, `exclave_`, `[@zero_alloc]`, etc.). That is a lot to absorb at once, and locality is just one of many mode axes. A guided environment could introduce these concepts one by one, letting the developer build intuition incrementally rather than all at once.
 
-Such a tool could take many forms: annotated `.ml` files, a CLI tool, a web app, or VS Code plugging, leveraging features like code lenses.
+Such a tool could take many forms: annotated `.ml` files, a CLI tool, a web app, or VS Code plugin, leveraging features like code lenses.
 
 
 
 <!-- TODO -->
 
 
+## Links
+[Merlin-domains branch](https://github.com/ocaml/merlin/tree/merlin-domains)
+
+[Merlin-domains mockup](https://github.com/tarides/merlin_mockup)
+
+[Portabilized merlin-domains mockup](https://github.com/tarides/merlin_mockup/tree/oxcaml)
 
