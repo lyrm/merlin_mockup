@@ -379,7 +379,7 @@ We use a single mutex for all vendored state. This does not mean a single big cr
 
 - *The branded `Access.t` pattern is a general approach* for interfacing OxCaml code with non-OxCaml dependencies: the compiler enforces the mutex discipline at the boundary, without modifying the dependency.
 
-- *The guarantee is only as good as the wrapper*: a vendored function missing from the wrapper can be called without the mutex. The wrapper must be audited manually.
+- *The guarantee is only as good as the wrapper*: a vendored function missing from the wrapper can be called without the mutex. The wrapper must be audited manually. `tsan` would also be very helpful here. 
 
 - *The wrapper maintenance cost seems acceptable for merlin*: it only needs updating when the vendored API surface changes (new or modified function signatures), not for internal refactors.
 
@@ -645,12 +645,19 @@ Such traces could be added to the error message itself, but they are already pre
 We did not investigate the feasibility of this feature, but it could be a powerful way to help developers build intuition about modes. We propose a complementary approach in the next section.
 
 ### Making the learning curve less steep
-  - need more examples, especially for the capsule API 
-  - small examples to help the devs develop the needed intuition about the modes
-  - Improve error messages (link to the subpart about the priority of the error messages between typing error and mode error as this is strongly related)
+<!-- pedagogical tool / drill game -->
+
+The learning curve of OxCaml could obviously be smoothed with more examples, tutorials, and documentation. Rather than elaborating on that, we want to highlight a different aspect: one of the harder parts of learning modes is developing intuition. We believe the editor features described above could play a key role, but we also want to sketch another idea, albeit not fully developed.
+
+Tutorials and documentation explain how things work, but intuition comes from encountering the right questions at the right time, and getting answers when you need them. A guided, exercise-based tool (in the spirit of [rustlings](https://rustlings.rust-lang.org/) or Duolingo) could accelerate this process: small, focused exercises that let the developer make mistakes, hit errors, and understand them one at a time. Repetition and progressive coverage of the mode axes would help internalize the rules without requiring the developer to understand everything upfront.
+
+Consider the locality axis alone: it involves allocation semantics, compiler optimizations, and several keywords (`local_`, `stack_`, `exclave_`, `[@zero_alloc]`, etc.). That is a lot to absorb at once, and locality is just one of many mode axes. A guided environment could introduce these concepts one by one, letting the developer build intuition incrementally rather than all at once.
+
+Such a tool could take many forms: annotated `.ml` files, a CLI tool, a web app, or VS Code plugging, leveraging features like code lenses.
 
 
-###  Low-hanging fruits in the documentation 
+
+<!-- TODO -->
 
 
 
