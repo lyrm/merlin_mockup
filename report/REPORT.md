@@ -21,9 +21,9 @@ This report documents our experience portabilizing a multicore OCaml project to 
 
 Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Neither of us had prior practical experience with OxCaml or with ownership-based type systems like Rust's.
 
-- *Carine* — Senior engineer. Wrote the multicore part of `merlin-domains` as well as the original mock-up. Had read the three original blog posts about OxCaml roughly a year before the project and had some familiarity with the concepts from internal discussions, but no hands-on experience.
+- *Carine*: Senior engineer. Wrote the multicore part of `merlin-domains` as well as the original mock-up. Had read the three original blog posts about OxCaml roughly a year before the project and had some familiarity with the concepts from internal discussions, but no hands-on experience.
 
-- *Timéo* — Junior engineer. No prior knowledge of OxCaml.
+- *Timéo*: Junior engineer. No prior knowledge of OxCaml.
 
 ### About `merlin-domains`
 
@@ -49,23 +49,26 @@ These features create the concurrency patterns that OxCaml's mode system is desi
 
 As explained below, we ended up portabilizing the mock-up instead of the real project, mainly because of the learning curve and the complexity of dealing with vendored code.
 
-## The successes
-### Learning OxCaml
-- hard but the documentation help a lot (todo: link to the improvement part below)
-- possible even with API changes 
+# The successes
 
-### Portabilizing the mock-up
-- we portabilize merlin-domain mockup 
+Even though we did not portabilize `merlin-domains` itself, we consider the project a success on several fronts.
 
-- make us more aware of the data races: we had to deal with all data races and find solution to ensure DRF even with the vendored code
+## Learning OxCaml
 
+Starting from no hands-on experience, we learned enough of OxCaml to portabilize a non-trivial concurrent codebase. This included understanding modes, the capsule API, the concurrency libraries, and their interactions. The learning curve was steep (see [Learning OxCaml](#learning-oxcaml)), but the existing documentation and help from the JS team made it possible.
 
-### Make us think of a better design for merlin-domains
-OxCaml: did it help with the general design ? 
-- fork/join : better design -> be more aware of what is shared (read/write) and use the right level of synchronization 
+## Portabilizing the mock-up
 
+We successfully portabilized the mock-up, which reproduces the key concurrency patterns of `merlin-domains`: two-domain architecture, message-passing, shared mutable state, partial results, and cancellation. The portabilized version compiles under OxCaml with DRF guarantees enforced at compile time, including for the vendored code, which we interfaced without modifying (see [Integrating vendored code](#integrating-vendored-code)).
 
-## The challenges
+## A better concurrent design for merlin-domains
+
+Working with OxCaml's mode system pushed us to rethink the concurrent design of `merlin-domains`. The original design uses a long-lived typer domain with a message loop. Exploring the available concurrency primitives made us realize that a fork-join model would give better control over what is shared between the two domains and what level of synchronization is needed at each step. We have not fully implemented this design yet, but we believe it would be easier to reason about and to portabilize than the original one. This improvement would also benefit the plain OCaml version of `merlin-domains`.
+
+## Concrete suggestions for editor support
+
+The portabilization experience led us to identify specific editor features that would help OxCaml developers (see [Helping the user through editor support](#helping-the-user-through-editor-support)). These suggestions come directly from the pain points we encountered and are grounded in concrete examples.
+
 
 Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered. As noted before, we focused our effort on leveraging OxCaml's DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges specifically related to these features below.
 
@@ -617,60 +620,75 @@ We did not investigate the feasibility of this feature, but it could be a powerf
 ### Making the learning curve less steep
 <!-- pedagogical tool / drill game -->
 
-**Note: I am not convinced by this section, that undersell the idea I have, but because the idea itself it still a bit vague, I'm having an hard time expressing the idea**
-
-The learning curve of OxCaml could obviously be smoothed with more examples, tutorials, and documentation. Rather than elaborating on that, we want to sketch a complementary idea: an exercise-based learning tool that would help developers build intuition about modes through guided trial and error. It could be similar to what exists for rust ([rustlings](https://rustlings.rust-lang.org/)) or closer to what duolingo proposes for languages.  
+The learning curve of OxCaml could obviously be smoothed with more examples, tutorials, and documentation. Rather than elaborating on that, we want to sketch a complementary idea: an exercise-based learning tool that would help developers build intuition about modes through guided trial and error. Such a tool could take many forms: annotated `.ml` files, a CLI tool like [rustlings](https://rustlings.rust-lang.org/), a web app, or a VS Code plugin leveraging code lenses etc..
 
 The key difference with documentation is that each exercise would provide more context than a compiler error: not just "this is local but expected global", but *why* it is local, *what local means in terms of memory*, and *what the options are to fix it*. Exercises would be organized in progressive sequences, one concept at a time, covering each mode axis and then combinations. Here is a rough sample for the locality axis:
 
 ```ocaml
-(* Exercise 1: stack_ forces stack allocation: it can't be returned *)
+(* 1. [@ global] is the default. A global value can escape. *)
 let ex1 () =
-  let a = stack_ Some "42" in
+  let a @ global = Some "foo" in
   a
-(* Error: a is local, can't escape *)
+(* Compiles. *)
 
-(* Exercise 2: exclave_ allocates in the caller's frame *)
-let ex2 () = exclave_
-  let a = Some "42" in
-  a
-(* Compiles. Type: unit -> local_ string option *)
+(* 2. [@ local] asserts that [a] is local: it can no longer escape. *)
+(* let ex2 () =
+  let a @ local = Some "foo" in
+  a *)
+(* Error: a is local but escapes its scope. *)
 
-(* Exercise 3: it's local to the caller's frame *)
+(* 3. Without annotation, the mode is inferred. [a] escapes, so it
+      must be global. *)
 let ex3 () =
-  let a = ex2 () in
+  let a = Some "foo" in
   a
-(* Error: a is local *)
+(* Compiles. Same as ex1: the annotation was redundant. *)
 
-(* Exercise 4: using it locally is fine *)
+(* 4. A local value can be used locally, just not returned. *)
 let ex4 () =
-  let a = ex2 () in
+  let a @ local = Some "foo" in
   match a with Some _ -> true | None -> false
-(* Compiles. Type: unit -> bool *)
+(* Compiles. [a] doesn't escape. *)
 
-(* Exercise 5: locality is deep. x is extracted from a local value *)
-let ex5 () =
-  let a = ex2 () in
-  match a with Some x -> x | None -> "default"
-(* Error: x is local because it comes from [a] which is local.
-   Locality propagates through pattern matching. *)
+(* 5. Locality is deep: [x] extracted from a local [a] is local too. *)
+(* let ex5 () =
+  let a @ local = Some "foo" in
+  match a with Some x -> x | None -> "" *)
+(* Error: x is local (from a), can't escape. *)
 
-(* Exercise 6: but int crosses locality. As immediates, they are never
-   on the heap *)
+(* 6. Same pattern, but [x : int]. Integers are immediate and cross
+      locality. *)
 let ex6 () =
-  let a = stack_ Some 42 in
+  let a @ local = Some 42 in
   match a with Some x -> x | None -> 0
-(* Compiles! [x] is an int, which is immediate: it is never heap-allocated,
-  so locality doesn't apply to it. *)
+(* Compiles! [int] is never heap-allocated, so locality doesn't
+   apply. *)
+```
 
-``` 
+In a more interactive format, exercises could show code with blanks and let the learner pick from predefined choices. Each attempt would show the compiler output alongside an explanation. For example:
 
-Such a tool could take many forms, e.g annotated `.ml` files, a CLI tool like rustlings, a web app, or a VS Code plugin leveraging code lenses.
+```
+  let foo () =
+    let a [1]_________ = Some "foo" in
+    [2]_______________
+ 
+(* [1] [ @ global ]  [ @ local ]
+   [2] [ a ]  [ (a : _ @ global) ] *)
+```
 
+|   |   |   |   |
+|---|---|---|---|
+| 1 | `@ global` | `@ local` | `@ local` |
+| 2 | `a` | `a` | `(a : _ @ global)` |
+| | | | |
+| **Result** | Compiles: `a` is global, can escape | Error: local value escapes its scope | Error: local value can't be coerced to global |
 
+The value of such a tool is both in the ability to quickly and easily explore many combinations and in repetition: by hitting the same errors in different contexts, the learner develops reflexes on which bugs (and thus fixes) match which error message. E.g., seeing "local but expected global" and knowing immediately to look for an escaping value or a missing [@nontail] annotation.
 
+# Conclusion
 
-## Links
+OxCaml's DRF guarantees are powerful and, once understood, genuinely help write safer concurrent code. The learning curve is steep but manageable with the existing documentation and support. The main remaining friction points (navigating the capsule API, understanding mode inference, and interfacing with non-OxCaml code) are addressable through better tooling, and we hope the suggestions in this report contribute to that effort.
+
 [Merlin-domains branch](https://github.com/ocaml/merlin/tree/merlin-domains)
 
 [Merlin-domains mockup](https://github.com/tarides/merlin_mockup)
