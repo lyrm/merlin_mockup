@@ -581,13 +581,12 @@ let f par =
 produces this error:
 ```
 The value "h" is "nonportable"
-  because it closes over the value "g" at line 7, characters 13-14
+  because it closes over the value "g" at line 4, characters 13-14
     which is "nonportable"
-    because it contains a usage (of the value "state" at line 6, characters 12-17)
+    because it contains a usage (of the value "state" at line 4, characters 12-17)
       which is expected to be "uncontended".
   However, the value "h" highlighted is expected to be "shareable"
-    because it is used inside the function at line 9, characters 4-22
-      which is expected to be "shareable".
+    because it is used inside the function at line 7, characters 4-22
 ```
 
 The error message already contains all four locations (`state`, `g`, `h`, the closure). Highlighting them in the editor would make the chain immediately visible without having to read the full text.
