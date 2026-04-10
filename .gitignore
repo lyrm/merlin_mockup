@@ -9,11 +9,13 @@ dune-workspace
 *.pyc
 *.cmly
 *.elc
+*.log
 
 /ocamlmerlin
 /ocamlmerlin-server
 /ocamlmerlin-lsp
 /dot-merlin-reader
+/report/not_to_push
 
 # Ignore garbage files from editors
 *.un~
