@@ -617,17 +617,57 @@ We did not investigate the feasibility of this feature, but it could be a powerf
 ### Making the learning curve less steep
 <!-- pedagogical tool / drill game -->
 
-The learning curve of OxCaml could obviously be smoothed with more examples, tutorials, and documentation. Rather than elaborating on that, we want to highlight a different aspect: one of the harder parts of learning modes is developing intuition. We believe the editor features described above could play a key role, but we also want to sketch another idea, albeit not fully developed.
+**Note: I am not convinced by this section, that undersell the idea I have, but because the idea itself it still a bit vague, I'm having an hard time expressing the idea**
 
-Tutorials and documentation explain how things work, but intuition comes from encountering the right questions at the right time, and getting answers when you need them. A guided, exercise-based tool (in the spirit of [rustlings](https://rustlings.rust-lang.org/) or Duolingo) could accelerate this process: small, focused exercises that let the developer make mistakes, hit errors, and understand them one at a time. Repetition and progressive coverage of the mode axes would help internalize the rules without requiring the developer to understand everything upfront.
+The learning curve of OxCaml could obviously be smoothed with more examples, tutorials, and documentation. Rather than elaborating on that, we want to sketch a complementary idea: an exercise-based learning tool that would help developers build intuition about modes through guided trial and error. It could be similar to what exists for rust ([rustlings](https://rustlings.rust-lang.org/)) or closer to what duolingo proposes for languages.  
 
-Consider the locality axis alone: it involves allocation semantics, compiler optimizations, and several keywords (`local_`, `stack_`, `exclave_`, `[@zero_alloc]`, etc.). That is a lot to absorb at once, and locality is just one of many mode axes. A guided environment could introduce these concepts one by one, letting the developer build intuition incrementally rather than all at once.
+The key difference with documentation is that each exercise would provide more context than a compiler error: not just "this is local but expected global", but *why* it is local, *what local means in terms of memory*, and *what the options are to fix it*. Exercises would be organized in progressive sequences, one concept at a time, covering each mode axis and then combinations. Here is a rough sample for the locality axis:
 
-Such a tool could take many forms: annotated `.ml` files, a CLI tool, a web app, or VS Code plugin, leveraging features like code lenses.
+```ocaml
+(* Exercise 1: stack_ forces stack allocation: it can't be returned *)
+let ex1 () =
+  let a = stack_ Some "42" in
+  a
+(* Error: a is local, can't escape *)
+
+(* Exercise 2: exclave_ allocates in the caller's frame *)
+let ex2 () = exclave_
+  let a = Some "42" in
+  a
+(* Compiles. Type: unit -> local_ string option *)
+
+(* Exercise 3: it's local to the caller's frame *)
+let ex3 () =
+  let a = ex2 () in
+  a
+(* Error: a is local *)
+
+(* Exercise 4: using it locally is fine *)
+let ex4 () =
+  let a = ex2 () in
+  match a with Some _ -> true | None -> false
+(* Compiles. Type: unit -> bool *)
+
+(* Exercise 5: locality is deep. x is extracted from a local value *)
+let ex5 () =
+  let a = ex2 () in
+  match a with Some x -> x | None -> "default"
+(* Error: x is local because it comes from [a] which is local.
+   Locality propagates through pattern matching. *)
+
+(* Exercise 6: but int crosses locality. As immediates, they are never
+   on the heap *)
+let ex6 () =
+  let a = stack_ Some 42 in
+  match a with Some x -> x | None -> 0
+(* Compiles! [x] is an int, which is immediate: it is never heap-allocated,
+  so locality doesn't apply to it. *)
+
+``` 
+
+Such a tool could take many forms, e.g annotated `.ml` files, a CLI tool like rustlings, a web app, or a VS Code plugin leveraging code lenses.
 
 
-
-<!-- TODO -->
 
 
 ## Links
