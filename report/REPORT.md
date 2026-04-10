@@ -477,22 +477,27 @@ This session should provide concrete examples and a comprehensive explanation of
 - Vendored code: can't be change. How to do the interface ? -->
 
 
-## How the experience could be improved ? 
-This part is about suggestions on what could be made to improve the user experience: 
-- better documentation to make the learning curve smoother 
-- better editor support to help the user develop the needed intuition about the modes and don't get lost in the longer API 
-- etc.. 
+## Suggestions for improving the developer experience
+
+Based on our experience, we suggest two directions for making OxCaml more accessible:
+- *Editor support*: features to help developers inspect modes, navigate mode-expanded APIs, and understand mode inference through their own code.
+- *Guided learning*: a pedagogical tool to help developers build intuition about modes incrementally, through exercises and repetition.
 
 ### Helping the user through editor support
 
 The same way `rust-analyzer` provides indicators and hints to help deal with lifetime and ownership, we think that editor support could be extremely helpful with OxCaml. It could help developers understand what has been inferred, navigate APIs made larger by mode variants, and develop the intuition needed to work with modes.
 
-Based on our experience portabilizing `merlin-domains`, we identified three categories of editor features that would be especially helpful:
+Based on our experience portabilizing `merlin-domains`, we suggest four directions for editor features that we think would be especially helpful:
 - *Inspecting modes*: seeing what modes a value has, and which ones matter for its type.
-- *Mode-aware navigation*: filtering completion and search results by mode compatibility, to help navigate APIs that expose many variants of the same function for different modes.
+- *Mode-aware completion*: filtering completion and search results by mode compatibility, to help navigate APIs that expose many variants of the same function for different modes.
+- *Error message readability*: highlighting all code locations referenced in a mode error, not just the error site.
 - *Understanding mode inference*: tracing why a given mode was inferred, to help diagnose errors and develop intuition.
 
+These are suggestions: we have not studied their feasibility. The first three seem reasonable to implement; the last one would definitely require more research.
+
 #### Inspecting modes
+
+From what we know, this is a feature that may have already been implemented internally at Jane Street but has not been released yet. In case it hasn't, here is a short description of what it could look like and why it would be useful.
 
 Like type inspection, mode inspection is a straightforward but essential feature. For example:
 
@@ -508,7 +513,9 @@ let process (s : state) par =
      Hovering over [read] would show:
        ('a -> int) @ shareable
      Hovering over [incr] would show:
-       ('a -> unit) @ nonportable
+       ('a -> unit) (all modes are default)
+     A specific command could show all the modes:
+       ('a -> unit) @ global aliased many nonportable uncontended
 
     making it clear [read] is compatible with fork_join2 while [incr] is not.
   *)
@@ -556,9 +563,40 @@ let foo () =
 
 Mode-aware completion would work the same way type-aware completion already does: by ranking results based on compatibility with the current context. In the `List` example, `List.iter__local` should be ranked higher than `List.iter` when the argument is local. In the `Multicore.spawn` example, `foo_p` should rank higher than `foo_np`. It could also provide a short hint about incompatible candidates (e.g. “`List.iter` requires a global argument, but `l` is local”).
 
+#### Using the editor to improve error message readability
+
+Mode error messages often reference several locations in the code (the error site, the capture site, the constraint source, etc.). Today, the editor only underlines the error site. A simple improvement would be to expose all referenced locations through LSP diagnostics and highlight them in the editor. For example, the following code:
+
+```ocaml
+let state = ref 0
+
+let f par =
+  let g x = state := x in
+  let h () = g 42 in
+  Parallel_kernel.fork_join2 par
+    (fun _par -> h ())
+    (fun _par -> ())
+```
+
+produces this error:
+```
+The value "h" is "nonportable"
+  because it closes over the value "g" at line 7, characters 13-14
+    which is "nonportable"
+    because it contains a usage (of the value "state" at line 6, characters 12-17)
+      which is expected to be "uncontended".
+  However, the value "h" highlighted is expected to be "shareable"
+    because it is used inside the function at line 9, characters 4-22
+      which is expected to be "shareable".
+```
+
+The error message already contains all four locations (`state`, `g`, `h`, the closure). Highlighting them in the editor would make the chain immediately visible without having to read the full text.
+
+This feature would also be useful for plain OCaml type errors, which similarly reference multiple locations. It could also be a good first step towards the more ambitious "understanding mode inference" feature described below.
+
 #### Understanding mode inference
 
-When a mode error occurs, the compiler reports the conflict at the use site and even so the error message are good, they does not always trace back to the root cause. This can be confusing when the value’s mode was determined far from where it is used. For example:
+When a mode error occurs, the compiler reports the conflict at the use site and while the error messages are usually good, they do not always trace back to the root cause. This can be confusing when the value’s mode was determined far from where it is used. For example:
 
 ```ocaml
 open! Await
@@ -598,7 +636,7 @@ foo : int list -> int
     because: used inside Mutex.with_access ~f (which requires @ portable)
 ```
 
-This is similar to what the compiler already computes for some errors, but exposed on demand for any value, including in code that compiles successfully. It could be displayed in a side panel or as inlay hints.
+This is similar to what the compiler already computes for some errors, but exposed on demand for any value, including in code that compiles successfully. It could be displayed in a side panel or using code-lenses.
 
 Here is another example, on the linearity axis: 
 ```ocaml
@@ -611,7 +649,7 @@ let example (x @ unique) =
   g ()
 ```
 
-The trace would show: 
+The trace could show: 
 ```
 g : unit -> unit
   line 5: bound @ once
@@ -619,8 +657,11 @@ g : unit -> unit
     because: [f] captures [x] which is @ unique
   line 7: error — once, already used at line 6
 ```
-The compiler only reports that `g` is `once` and was already used at line 6, without explaining the `g` → `f` → `x @ unique` chain.
+Whereas the compiler only reports that `g` is `once` and was already used at line 6, without explaining the `g` → `f` → `x @ unique` chain.
 
+Such traces could be added to the error message itself, but they are already pretty long. An "on-demand" feature seems more appropriate to avoid overwhelming users who just want to see the error. It would also be useful for values that compile successfully, to understand why a given mode was inferred and develop intuition about modes.
+
+We did not investigate the feasibility of this feature, but it could be a powerful way to help developers build intuition about modes. We propose a complementary approach in the next section.
 
 ### Making the learning curve less steep
   - need more examples, especially for the capsule API 
