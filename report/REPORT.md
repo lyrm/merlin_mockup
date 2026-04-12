@@ -75,7 +75,7 @@ Portabilizing `merlin-domains` to OxCaml was a challenging experience, especiall
 When evaluating the feasibility of the project, we identified the following expected challenges:
 - learning OxCaml,
 - which concurrency model to use,  
-- how to guarantee DRF without changing the code vendored from OCaml typer ? 
+- how to guarantee DRF without changing the vendored OCaml typer code?
 
 We also encountered some non-expected challenges: 
 - the interdependency between the different features of OxCaml (modes, modalities, kinds, unboxed types) to do multicore programming in OxCaml,
@@ -86,12 +86,12 @@ The two main challenges ended up being learning OxCaml and dealing with the vend
 ### Learning OxCaml
 
 #### Context
- We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. This was a significant challenge, as OxCaml has a steep learning curve. 
+We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. This was a significant challenge, as OxCaml has a steep learning curve. 
 
 #### Challenge
 We encountered two main challenges as newcomers to OxCaml trying to portabilize multicore code: understanding modes, and navigating the capsule API.
 
-The first challenge is related to the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning OxCaml translated for us in many trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. It took us quite some time to even start portabilizing the code.
+The first challenge is related to the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning OxCaml translated for us into much trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. It took us quite some time to even start portabilizing the code.
 
 The second challenge was navigating the capsule API, which was the more significant challenge of the two, for several reasons:
 
@@ -120,7 +120,6 @@ let read () =
 - *Mode prerequisites.* Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, linearity and uniqueness for key usage. Kinds and modalities are also needed to understand mode crossing and make everything work. Learning just the portability and contention axes is not enough.
 
 - *Lack of guided material.* The API is well documented in its `.mli` files, but reference documentation alone is not enough to build an understanding for when to use each way of opening a capsule (access, password, key). 
-<!-- More guided material, like tutorials or annotated examples showing why one approach is needed over another, would have made a real difference.  -->
 
 - *Verbosity.* Using the API requires a lot of boilerplate code, which tends to hide the core logic and make it harder to understand what is going on, especially for concurrent algorithms. Here is an example of how the API can make simple logic look more complex. This code is mostly extracted from the message-passing data structure we implemented for `merlin-domains`:
 
@@ -250,7 +249,7 @@ The best match we found for our use case is the `Multicore` library, which spawn
 
 - There is very little documentation about which scheduling library to use for what. Only `Parallel` is covered in the oxcaml.org documentation; `Concurrent` and `Multicore` are not mentioned. Guidance on when to use each would help users avoid the kind of deadlock we encountered.
 
-- Using a fork-join design would have helped us refine: (1) when concurrency (rather than parallelism) is needed, and (2) what must be shared between the two tasks at each fork.  <!-- TODO : LINK -->
+- Using a fork-join design would have helped us refine: (1) when concurrency (rather than parallelism) is needed, and (2) what must be shared between the two tasks at each fork.  
 
 ### Dealing with top level mutable state 
 
@@ -577,7 +576,7 @@ let example () =
       ())
 ```
 
-The compiler rejects this with `”foo” is “nonportable” but expected to be “portable”` on `foo` at line 21. But it does not explain *why* `foo` is nonportable. The root cause is that `make_processor` captures a mutable `cache` ref (line 9), which makes the returned closure nonportable. If `make_processor` is defined in a different module or far away, the developer has no easy way to find this.
+The compiler rejects this with `”foo” is “nonportable” but expected to be “portable”` on `foo` at line 21. But it does not explain *why* `foo` is nonportable. The root cause is that `make_processor` captures a mutable `cache` ref (line 8), which makes the returned closure nonportable. If `make_processor` is defined in a different module or far away, the developer has no easy way to find this.
 
 An editor feature that, on command, displays the full inference chain for a selected value would help. For example, selecting `foo` at line 21 could show:
 
@@ -585,7 +584,7 @@ An editor feature that, on command, displays the full inference chain for a sele
 foo : int list -> int
   line 16: bound @ nonportable
     because: returned from [make_processor]
-    because: captures [cache] (mutable ref, line 9)
+    because: captures [cache] (mutable ref, line 8)
   line 21: required @ portable
     because: used inside Mutex.with_access ~f (which requires @ portable)
 ```
