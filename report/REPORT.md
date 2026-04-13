@@ -66,7 +66,6 @@ These features create the concurrency patterns that OxCaml's mode system is desi
 
 - **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from the OCaml typer that contains mutable values is a concrete instance of this challenge (see [Integrating vendored code](#integrating-vendored-code)).
 
-As explained below, we ended up portabilizing the mock-up instead of the real project, mainly because of the learning curve and the complexity of dealing with vendored code.
 
 # The successes
 
@@ -82,7 +81,7 @@ We successfully portabilized the mock-up, which reproduces the key concurrency p
 
 ## A better concurrent design for merlin-domains
 
-Working with OxCaml's mode system pushed us to rethink the concurrent design of `merlin-domains`. The original design uses a long-lived typer domain with a message loop. Exploring the available concurrency primitives made us realize that a fork-join model would give better control over what is shared between the two domains and what level of synchronization is needed at each step. We have not fully implemented this design yet, but we believe it would be easier to reason about and to portabilize than the original one. This improvement would also benefit the plain OCaml version of `merlin-domains`.
+Working with OxCaml's mode system pushed us to rethink the concurrent design of `merlin-domains`. The original design dedicates a secondary domain to typing, running a persistent loop that receives requests through a blocking message-passing structure and processes them one at a time. Exploring the available concurrency primitives made us realize that a fork-join model would give better control over what is shared between the two domains and what level of synchronization is needed at each step. We have not fully implemented this design yet, but we believe it would be easier to reason about and to portabilize than the original one. This improvement would also benefit the plain OCaml version of `merlin-domains`.
 
 ## Concrete suggestions for editor support
 
@@ -95,13 +94,13 @@ Portabilizing `merlin-domains` to OxCaml was a challenging experience, especiall
 When evaluating the feasibility of the project, we identified the following expected challenges:
 
 - learning OxCaml,
-- which concurrency model to use,  
+- which concurrency model to use,
 - how to guarantee DRF without changing the vendored OCaml typer code?
 
 We also encountered some non-expected challenges:
 
-- the interdependency between the different features of OxCaml (modes, modalities, kinds, unboxed types) to do multicore programming in OxCaml,
-- error messages: understanding them but also understanding the interaction between type errors and mode errors.
+- sharing mutable state safely in OxCaml requires understanding most mode axes, modalities, and kinds, not just portability and contention as we initially expected.
+- error messages: understanding the interaction between type errors and mode errors.
 
 The two main challenges ended up being learning OxCaml and dealing with the vendored code.
 
@@ -198,7 +197,7 @@ let send_and_wait t new_msg =
 The core logic is the same in both versions (set the message, signal, wait until cleared), but in OxCaml it is interleaved with capsule unwrapping, key threading, and mode annotations, which makes it harder to follow at a glance.
 
 ### Approach
-To learn OxCaml, the [oxcaml.org tutorials](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) and discussions with the JS team (special thanks to Liam and Aspen) were essential. For the capsule API specifically, we relied mostly on trial and error as no dedicated tutorial exists.
+To learn OxCaml, the [oxcaml.org tutorials](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) and discussions with the JS team (special thanks to Liam and Aspen) were essential. For the capsule API specifically, we relied mostly on these discussions and on trial and error as no dedicated tutorial exists.
 
 ### Take-away
 The learning curve could be made less steep with more guided material for the capsule API and better editor support for modes. We discuss concrete suggestions in the [editor support](#helping-the-user-through-editor-support) and [documentation](#making-the-learning-curve-less-steep) sections below.
@@ -296,7 +295,7 @@ Dealing with vendored code was one of the main reasons we portabilized the mock-
 
 `merlin` vendors a large portion of the OCaml compiler. It is written in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields. This vendored code should not be deeply rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase. Here we choose the extreme option of not altering the code at all. A similar situation would arise with any external library that is not portabilized to OxCaml: we want to use it as is, without modifying it, but we still need to interface with it from OxCaml code.
 
-In `merlin-domains`, both domains call into vendored code: the worker domain runs the typer, and the main domain runs analysis code (which also calls vendored functions like `Ctype.unify` or `Printtyp.wrap_printing_env`). During the partial result scenario, both execute concurrently, creating data races on the vendored mutable state.
+In `merlin-domains`, both domains call into vendored code: the worker domain runs the typer, and the main domain runs analysis code. During the partial result scenario, both execute concurrently, creating data races on the vendored mutable state.
 
 ### Challenge
 
@@ -319,7 +318,6 @@ end = struct
   let compute n =
     global_counter := !global_counter + n;
     !global_counter mod 2 = 0
-  ...
 end
 ```
 ```ocaml
@@ -371,7 +369,7 @@ The key idea: the only way to obtain a `k Capsule.Access.t` is through `Lock.mut
 
 For `add_entry`, the `Access.t` serves a double purpose: it is needed both to unwrap `env` from its `Capsule.Data.t` and to authorize the call (which mutates hidden global state). Also wrapping `env` in a capsule is not strictly necessary for the mutex discipline, it makes it explicit in the signature that `env` is stateful.
 
-For `compute`, which does not take an `env` argument, the `Access.t` only serves as an authorization token: it is not structurally needed, but requiring it ensures the caller holds the mutex. In both cases, the wrapper is the trust boundary: `Obj.magic_portable` casts are used inside, and the wrapper author must verify that the vendored functions are safe to call under the lock. Outside the wrapper, the compiler enforces the discipline: no `Access.t`, no call.
+For `compute`, which does not take an `env` argument, the `Access.t` only serves as an authorization token: it is not structurally needed, but requiring it ensures the caller holds the mutex. In both cases, the wrapper is the trust boundary: `Obj.magic_portable` casts are used inside, and the wrapper author must verify which vendored functions need to be called under the lock. Outside the wrapper, the compiler enforces the discipline: no `Access.t`, no call.
 
 On the caller side, this looks like:
 
@@ -657,9 +655,9 @@ let ex1 () =
 (* Compiles. *)
 
 (* 2. [@ local] asserts that [a] is local: it can no longer escape. *)
-(* let ex2 () =
+let ex2 () =
   let a @ local = Some "foo" in
-  a *)
+  a
 (* Error: a is local but escapes its scope. *)
 
 (* 3. Without annotation, the mode is inferred. [a] escapes, so it
@@ -676,9 +674,9 @@ let ex4 () =
 (* Compiles. [a] doesn't escape. *)
 
 (* 5. Locality is deep: [x] extracted from a local [a] is local too. *)
-(* let ex5 () =
+let ex5 () =
   let a @ local = Some "foo" in
-  match a with Some x -> x | None -> "" *)
+  match a with Some x -> x | None -> ""
 (* Error: x is local (from a), can't escape. *)
 
 (* 6. Same pattern, but [x : int]. Integers are immediate and cross
