@@ -2,14 +2,14 @@
   $ PID=$!
   $ sleep 0.1
 
-  $ echo -en "./defs/math\npart 4" | nc localhost 8453
+  $ printf "./defs/math\npart 4" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
   Value of "delta" is 21.
   Value of "epsilon" is 6.
   
-  $ echo -en "./defs/math\npart 15" | nc localhost 8453
+  $ printf "./defs/math\npart 15" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
@@ -27,4 +27,4 @@
   Value of "omicron" is 96.
   Value of "pi" is 115.
   
-  $ kill -INT $PID
+  $ printf '.\nclose' | nc localhost 8453

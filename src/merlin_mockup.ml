@@ -1,3 +1,5 @@
+exception Closing
+
 (** [run] = New_merlin.run ou New_commands.run *)
 let run =
   let req_count = ref 0 in
@@ -14,11 +16,27 @@ let main () =
   let hermes = Hermes.create () in
   Utils.log 0 "Spawning typer";
   let domain_typer = Domain.spawn (fun () -> Mopipeline.domain_typer hermes) in
-  Server.listen ~handle:(fun req ->
-      let pipeline = run req hermes in
-      let items = (Option.get pipeline).result.typedtree in
-      Moparser.to_string (ref (List.rev !items)));
-  Hermes.send_and_wait hermes (Motyper.Msg `Close);
-  Domain.join domain_typer
+  begin
+    try
+      Server.listen ~handle:(fun req ->
+          match req with
+          | Server.Close -> raise Closing
+          | Config config ->
+              let items =
+                match run config hermes with
+                | None -> failwith "No pipeline found (main)"
+                | Some pipeline -> pipeline.Mopipeline.result.typedtree
+              in
+              Moparser.to_string (ref (List.rev !items)));
+      Domain.join domain_typer
+    with
+    | Closing ->
+        Utils.log 0 "Closing requested received.";
+        Hermes.send_and_wait hermes (Motyper.Msg `Close)
+    | _ ->
+        Utils.log 0 "Server thread exiting with exception";
+        Hermes.send_and_wait hermes (Motyper.Msg `Close)
+  end;
+  Utils.log 0 "The end"
 
 let () = main ()

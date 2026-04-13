@@ -9,9 +9,9 @@ type t = {
 let process config hermes =
   let parsedtree = Moparser.parse config.Moconfig.source in
   try Motyper.run config hermes parsedtree
-  with effect Motyper.Partial (Run evals), k ->
+  with effect Motyper.Partial (Run result), k ->
     Utils.log 1 "Sharing partial result";
-    Hermes.send_and_wait hermes (Partial evals);
+    Hermes.send_and_wait hermes (Partial result);
     Utils.log 1 "Shared partial result!";
     Effect.Deep.continue k ()
 
@@ -21,10 +21,7 @@ let get config hermes =
   match Hermes.recv_clear hermes with
   | Partial pipeline ->
       Utils.log 0 "Got partial result";
-      let pipeline =
-        { source = config.source; parsedtree = []; result = pipeline }
-      in
-      Some pipeline
+      Some { source = config.source; parsedtree = []; result = pipeline }
   | Msg (`Exn exn) ->
       Utils.log 0 "Got exception: %s" (Printexc.to_string exn);
       raise exn
