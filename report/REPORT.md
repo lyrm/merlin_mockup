@@ -62,14 +62,14 @@ These features create the concurrency patterns that OxCaml's mode system is desi
 
 - **Tractable multicore design:** `merlin` is a large, real-world project, but its multicore design is relatively simple: only two domains, no scheduler, and a straightforward message-passing data structure. It also features shared mutable state and data races, which OxCaml statically prevents: the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
 
-- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a [mock-up of the project](https://github.com/tarides/merlin_mockup). Since we were not very familiar with OxCaml when we started, the mock-up also served as a fallback in case we could not portabilize the real project, which ended up being the case. The mock-up was gradually extended to incorporate patterns from the real project that we identified as potential blockers for portabilization.
+- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a [mock-up of the project](https://github.com/tarides/merlin_mockup). Portabilizing the mock-up was a natural first step: it let us learn OxCaml on a smaller codebase before tackling the real project.
 
 - **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from the OCaml typer that contains mutable values is a concrete instance of this challenge (see [Integrating vendored code](#integrating-vendored-code)).
 
 
 # The successes
 
-Even though we did not portabilize `merlin-domains` itself, we consider the project a success on several fronts.
+We learnt OxCaml and portabilized the mock-up and, in the process, gained insights that go beyond the mock-up itself: a better concurrent design for `merlin-domains`, a reusable pattern for vendored code, and concrete suggestions for editor support.
 
 ## Learning OxCaml
 
@@ -77,7 +77,7 @@ Starting from no hands-on experience, we learned enough of OxCaml to portabilize
 
 ## Portabilizing the mock-up
 
-We successfully portabilized the mock-up, which reproduces the key concurrency patterns of `merlin-domains`: two-domain architecture, message-passing, shared mutable state, partial results, and cancellation. The portabilized version compiles under OxCaml with DRF guarantees enforced at compile time, including for the vendored code, which we interfaced without modifying (see [Integrating vendored code](#integrating-vendored-code)).
+We successfully portabilized the mock-up, which reproduces the key concurrency patterns of `merlin-domains`: two-domain architecture, message-passing, shared mutable state, partial results, and cancellation. The mock-up was progressively extended based on our analysis of `merlin-domains` to cover patterns we identified as potential blockers for portabilization. The portabilized version compiles under OxCaml with DRF guarantees enforced at compile time, including for the vendored code, which we interfaced without modifying (see [Integrating vendored code](#integrating-vendored-code)).
 
 ## A better concurrent design for merlin-domains
 
@@ -85,36 +85,32 @@ Working with OxCaml's mode system pushed us to rethink the concurrent design of 
 
 ## Concrete suggestions for editor support
 
-The portabilization experience led us to identify specific editor features that would help OxCaml developers (see [Helping the user through editor support](#helping-the-user-through-editor-support)). These suggestions come directly from the pain points we encountered and are grounded in concrete examples.
+The portabilization experience led us to identify specific editor features that would help OxCaml developers (see [Helping the user through editor support](#helping-the-user-through-editor-support)). These suggestions come directly from the pain points we encountered.
 
 # The challenges
 
-Portabilizing `merlin-domains` to OxCaml was a challenging experience, especially since it also includes learning OxCaml from scratch. Below, we describe the main challenges we encountered. As noted before, we focused our effort on leveraging OxCaml's DRF guarantee to make the parallelization work, and we did not take advantage of the other features of OxCaml (e.g. locality axis and unboxed types), which is why we don't mention challenges specifically related to these features below.
+Below, we describe the main challenges we encountered, both from portabilizing the mock-up and from analyzing `merlin-domains` for potential blockers. We focused on leveraging OxCaml's DRF guarantees for the concurrent parts, and did not explore other features such as the locality axis or unboxed types, which is why challenges specific to these features are not covered here.
 
 When evaluating the feasibility of the project, we identified the following expected challenges:
 
 - learning OxCaml,
 - which concurrency model to use,
-- how to guarantee DRF without changing the vendored OCaml typer code?
+- how to guarantee DRF without changing the vendored OCaml typer code.
 
 We also encountered some non-expected challenges:
 
 - sharing mutable state safely in OxCaml requires understanding most mode axes, modalities, and kinds, not just portability and contention as we initially expected.
 - error messages: understanding the interaction between type errors and mode errors.
 
-The two main challenges ended up being learning OxCaml and dealing with the vendored code.
-
 ## Learning OxCaml
 
 ### Context
-We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. This was a significant challenge, as OxCaml has a steep learning curve. 
+We had no prior practical experience with OxCaml, and we had to learn it from scratch while portabilizing `merlin-domains`. OxCaml has a steep learning curve.
 
-### Challenge
-We encountered two main challenges as newcomers to OxCaml trying to portabilize multicore code: understanding modes, and navigating the capsule API.
+### Challenges
+We encountered two main challenges as newcomers: understanding modes, and navigating the capsule API. The first compounds the second, as the capsule API requires fluency with most mode axes to use effectively. The main difficulties were:
 
-The first challenge is related to the diversity of modes. Each mode axis has its own logic, and there are many of them. This makes it difficult to develop a good intuition for when and how to use them. In practice, learning OxCaml translated for us into much trial and error, or going back and forth between the code and the [documentation](https://oxcaml.org/documentation/modes/intro/) to understand why a given mode is inferred and how to satisfy its constraint. It took us quite some time to even start portabilizing the code.
-
-The second challenge was navigating the capsule API, which was the more significant challenge of the two, for several reasons:
+- **Mode prerequisites.** Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, linearity and uniqueness for key usage. Kinds and modalities are also needed to understand mode crossing. In practice, this meant much trial and error, and frequent back-and-forth with the documentation.
 
 - **Size.** The API is very long, making it hard to know which part to focus on when starting out.
 
@@ -137,8 +133,6 @@ let read () =
   Mutex.with_access await blocking_mutex ~f:(fun access ->
       !(Capsule.Data.unwrap ~access data))
 ```
-
-- **Mode prerequisites.** Using capsules effectively requires understanding almost all mode axes: portability and contention for DRF, but also contention for access, locality for password, linearity and uniqueness for key usage. Kinds and modalities are also needed to understand mode crossing and make everything work. Learning just the portability and contention axes is not enough.
 
 - **Lack of guided material.** The API is well documented in its `.mli` files, but reference documentation alone is not enough to build an understanding for when to use each way of opening a capsule (access, password, key). 
 
@@ -194,7 +188,7 @@ let send_and_wait t new_msg =
       loop key [@nontail])
 ```
 
-The core logic is the same in both versions (set the message, signal, wait until cleared), but in OxCaml it is interleaved with capsule unwrapping, key threading, and mode annotations, which makes it harder to follow at a glance.
+The core logic is the same in both versions (set the message, signal, wait until cleared), but in OxCaml it is interleaved with capsule unwrapping, key threading, and mode annotations. The added verbosity is the trade-off for compile-time DRF.
 
 ### Approach
 To learn OxCaml, the [oxcaml.org tutorials](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) and discussions with the JS team (special thanks to Liam and Aspen) were essential. For the capsule API specifically, we relied mostly on these discussions and on trial and error as no dedicated tutorial exists.
@@ -291,7 +285,7 @@ For the vendored code, which we should not modify, the problem is more complex a
 
 ### Context
 
-Dealing with vendored code was one of the main reasons we portabilized the mock-up rather than the real project: we needed a simpler codebase to explore possible approaches.
+Dealing with vendored code was one of the challenges we extended the mock-up to cover, in order to find and validate an approach in a simpler setting than the real-project.
 
 `merlin` vendors a large portion of the OCaml compiler. It is written in plain OCaml, was designed for a single-threaded world, and is full of mutable state: roughly 40+ module-level refs and mutable record fields. This vendored code should not be deeply rewritten in OxCaml: it is rebased onto each new OCaml release, and any modification would have to be redone at every rebase. Here we choose the extreme option of not altering the code at all. A similar situation would arise with any external library that is not portabilized to OxCaml: we want to use it as is, without modifying it, but we still need to interface with it from OxCaml code.
 
@@ -469,7 +463,7 @@ Based on our experience portabilizing `merlin-domains`, we suggest four directio
 - **Error message readability**: highlighting all code locations referenced in a mode error, not just the error site.
 - **Understanding mode inference**: tracing why a given mode was inferred, to help diagnose errors and develop intuition.
 
-These are suggestions: we have not studied their feasibility. The first three seem reasonable to implement; the last one would definitely require more research.
+These are suggestions: we have not studied their feasibility in depth. The first three seem reasonable to implement; the last one would definitely require more research.
 
 ### Inspecting modes
 
@@ -601,7 +595,7 @@ let example () =
       ())
 ```
 
-The compiler rejects this with `”foo” is “nonportable” but expected to be “portable”` on `foo` at line 21. But it does not explain *why* `foo` is nonportable. The root cause is that `make_processor` captures a mutable `cache` ref (line 8), which makes the returned closure nonportable. If `make_processor` is defined in a different module or far away, the developer has no easy way to find this.
+The compiler rejects this with `”foo” is “nonportable” but expected to be “portable”` on `foo` at line 21. But it does not explain *why* `foo` is nonportable. The root cause is that `make_processor` captures a mutable `cache` ref (line 8), which makes the returned closure nonportable. If `make_processor` is defined in a different module or far away, this is where editor support could help.
 
 An editor feature that, on command, displays the full inference chain for a selected value would help. For example, selecting `foo` at line 21 could show:
 
@@ -710,7 +704,7 @@ The value of such a tool is both in the ability to quickly and easily explore ma
 
 # Conclusion
 
-OxCaml's DRF guarantees are powerful and, once understood, genuinely help write safer concurrent code. The learning curve is steep but manageable with the existing documentation and support. The main remaining friction points (navigating the capsule API, understanding mode inference, and interfacing with non-OxCaml code) are addressable through better tooling, and we hope the suggestions in this report contribute to that effort.
+Portabilizing the mockup of `merlin-domains` was a valuable exercise to understand the practical challenges of using OxCaml for multicore programming. OxCaml's DRF guarantees are powerful and genuinely help write safer concurrent code. The main friction points we encountered (navigating the capsule API, understanding mode inference, and interfacing with non-OxCaml code) are addressable through better tooling, and we hope the suggestions in this report contribute to that effort.
 
 # Links
 [Merlin-domains branch](https://github.com/ocaml/merlin/tree/merlin-domains)
