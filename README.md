@@ -1,33 +1,37 @@
-(WIP)
+# merlin-mockup
 
-# Purpose
+A simplified mock-up of [merlin-domains](https://github.com/ocaml/merlin/tree/merlin-domains), used to experiment with multicore designs for Merlin.
 
-The purpose of the repository is to mimick the general structure of the typer part of 
-Merlin code to design, document and discuss several optimization i
-- using a background domain that performs the typing computation;
-- partial typing
-- request cancellation mechanism
+## Purpose
 
-# TODO
-- proper tests ! 
-- better typer simulation
-- Improve README
+[merlin-domains](https://github.com/ocaml/merlin/tree/merlin-domains) is an experimental branch of Merlin that uses two domains to improve performance. The mock-up reproduces the key concurrency patterns of merlin-domains in a smaller codebase, making it easier to prototype and evaluate design choices.
 
-# Design Explanation
+The three features explored are:
 
-## The role of each domain
-- one domain (called main domain) is handling the server's requests, which 
-includes doing the analysis before answering
+- **Early type return**: the typer domain shares a partial result with the main domain as soon as possible, so the main domain can start analysis without waiting for the full buffer to be typed.
+- **Parallelization**: typing and analysis run concurrently on the partial result.
+- **Cancellation**: if a new request arrives while the typer is still working, the main domain cancels the current work.
 
-- one domain (caller typer domain) is computing the 'pipeline'
+<img src="img/complete_graph_with_mutex.svg" alt="Sequence diagram" width="400">
 
-## Sharing data
+## Architecture
 
-TODO 
+The mock-up uses two domains:
 
-## Partial typing
+- **Main domain**: listens for requests, dispatches work, runs analysis, and responds.
+- **Typer domain**: receives configurations through a message-passing structure (`Hermes`), runs a simplified typer (`Moparser`), and shares results back.
 
-The idea is that for some requests it mays be enough to only do a partial typing of the buffer, until the next top level definition of the current buffer for example. To do so, the 
+Key modules:
 
+| Module | Role |
+|--------|------|
+| `merlin_mockup.ml` | Entry point, spawns both domains |
+| `hermes.ml` | Message-passing and synchronization between domains |
+| `mopipeline.ml` | Orchestrates the typing pipeline |
+| `motyper.ml` | Simplified typer with partial result support |
+| `moquery_commands.ml` | Analysis on the (partial) typed result |
+| `server.ml` | TCP server, parses requests |
 
-The typer domain can return a partial result to the main domain and keep typing the buffer until the end of it or cancellation. 
+## OxCaml portabilization
+
+The [`oxcaml`](https://github.com/tarides/merlin_mockup/tree/oxcaml) branch contains a portabilization of this mock-up to OxCaml, exploring how OxCaml's mode system can enforce data-race freedom at compile time. See the [experience report](https://github.com/tarides/merlin_mockup/tree/oxcaml/report/REPORT.md) for details.
