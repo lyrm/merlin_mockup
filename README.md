@@ -32,6 +32,19 @@ Key modules:
 | `moquery_commands.ml` | Analysis on the (partial) typed result |
 | `server.ml` | TCP server, parses requests |
 
+## Build and run
+To build the mock-up, run:
+
+```bash
+dune build
+```
+
+To run the tests, execute:
+
+```bash
+dune runtest ./tests/test.t
+```
+
 ## OxCaml portabilization
 
 The [`oxcaml`](https://github.com/tarides/merlin_mockup/tree/oxcaml) branch contains a portabilization of this mock-up to OxCaml, exploring how OxCaml's mode system can enforce data-race freedom at compile time. See the [experience report](https://github.com/tarides/merlin_mockup/tree/oxcaml/report/REPORT.md) for details.

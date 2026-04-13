@@ -1,17 +1,21 @@
   $ merlin-mockup > /dev/null 2>&1 &
   $ PID=$!
-  $ sleep 0.1
+  $ sleep 0.2
 
   $ printf "./defs/math\npart 1" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   
+
+  $ sleep 0.1
   $ printf "./defs/math\npart 3" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
   Value of "gamma" is 7.
   Value of "delta" is 21.
   
+
+  $ sleep 0.1
   $ printf "./defs/math\npart 12" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
@@ -27,6 +31,7 @@
   Value of "mu" is 32.
   Value of "nu" is -750.
   
+  $ sleep 0.1
   $ printf "./defs/math\npart 20" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
@@ -49,7 +54,9 @@
   Value of "tau" is 98.
   Value of "upsilon" is 92.
   Value of "phi" is 30.
+  Value of "chi" is 48.
   
+  $ sleep 0.1
   $ printf "./defs/math\npart 10" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
@@ -63,4 +70,5 @@
   Value of "kappa" is 23.
   Value of "lambda" is -250.
   
+  $ sleep 0.1
   $ printf '.\nclose' | nc localhost 8453

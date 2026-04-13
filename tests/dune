@@ -2,4 +2,5 @@
  (applies_to :whole_subtree)
  (deps
   %{bin:merlin-mockup}
-  (source_tree defs)))
+  (source_tree defs))
+ (locks /port-8453))

@@ -38,7 +38,7 @@ let listen ~handle =
   Unix.setsockopt socket SO_REUSEPORT true;
   let addr = Unix.(ADDR_INET (inet_addr_loopback, 8453)) in
   Unix.bind socket ~addr;
-  Unix.listen socket ~max:5;
+  Unix.listen socket ~max:20;
   log "server socket is setup";
   let rec loop () =
     let client, _client_addr = Unix.accept socket in
