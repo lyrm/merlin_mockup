@@ -16,8 +16,9 @@ header-includes: |
   \usepackage{float}
   \floatplacement{figure}{H}
   \DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},fontsize=\small}
-  \renewenvironment{Shaded}{\begin{tcolorbox}[colback=black!3!white,colframe=black!10!white,boxrule=0.5pt]}{\end{tcolorbox}}
   \usepackage{tcolorbox}
+  \tcbuselibrary{breakable}
+  \renewenvironment{Shaded}{\begin{tcolorbox}[colback=black!3!white,colframe=black!10!white,boxrule=0.5pt,breakable]}{\end{tcolorbox}}
   \usepackage{longtable}
   \let\oldlongtable\longtable
   \let\endoldlongtable\endlongtable
@@ -32,13 +33,13 @@ numbersections: true
 secnumdepth: 2
 ---
 
-This report documents our experience portabilizing a multicore OCaml project to OxCaml. We describe the challenges we encountered, the solutions we found, and suggestions for improving the OxCaml developer experience.
+This report documents our experience portabilizing a multicore OCaml project to OxCaml. We describe our [successes](#the-successes), the [challenges](#the-challenges) we encountered, the solutions we found, and [suggestions](#suggestions-for-improving-the-developer-experience) for improving the OxCaml developer experience.
 
 # Introduction
 
 ## Background of the contributors
 
-Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Neither of us had prior practical experience with OxCaml or with ownership-based type systems like Rust's.
+Two people worked on the portabilization: Timéo Arnouts and myself (Carine Morel). Neither of us had prior practical experience with OxCaml or with ownership-based type systems like Rust's.
 
 - *Carine*: Senior engineer. Wrote the multicore part of `merlin-domains` as well as the original mock-up. Had read the three original blog posts about OxCaml roughly a year before the project and had some familiarity with the concepts from internal discussions, but no hands-on experience.
 
@@ -54,53 +55,49 @@ Two people worked on the portabilization: myself (Carine) and Timéo Arnouts. Ne
 
 - **Cancellation mechanism**: once the early type return is achieved, the main domain is back to listening for new requests while the secondary domain may still be typing the end of the buffer. If a new request arrives, the main domain can send a cancellation message to the secondary domain to stop the current work and start processing the new request.
 
+These features rely on the concurrency patterns that OxCaml's mode system is designed to make safe: shared mutable state, cross-domain communication, and concurrent access to the same data.
+
+
   ![Sequence diagram for merlin-domains](complete_graph_with_mutex.svg)
 
-These features create the concurrency patterns that OxCaml's mode system is designed to make safe: shared mutable state, cross-domain communication, and concurrent access to the same data.
 
 ## Reasons for portabilizing `merlin-domains` to OxCaml
+Several aspects of merlin-domains made it a good candidate for this experiment.
 
-- **Tractable multicore design:** `merlin` is a large, real-world project, but its multicore design is relatively simple: only two domains, no scheduler, and a straightforward message-passing data structure. It also features shared mutable state and data races, which OxCaml statically prevents: the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
+**Tractable multicore design:** `merlin` is a large, real-world project, but its multicore design is relatively simple: only two domains, no scheduler, and a straightforward message-passing data structure. It also features shared mutable state and data races, which OxCaml statically prevents: the portabilization must address them explicitly, exercising a key part of OxCaml's safety model.
 
-- **Availability of a mock-up:** to experiment with different multicore designs, we wrote a [mock-up of the project](https://github.com/tarides/merlin_mockup). Portabilizing the mock-up was a natural first step: it let us learn OxCaml on a smaller codebase before tackling the real project.
+**Availability of a mock-up:** to experiment with different multicore designs, we wrote a [mock-up of the project](https://github.com/tarides/merlin_mockup). Portabilizing the mock-up was a natural first step: it let us learn OxCaml and try out ideas on a smaller codebase.
 
-- **Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from the OCaml typer that contains mutable values is a concrete instance of this challenge (see [Integrating vendored code](#integrating-vendored-code)).
+**Concrete challenges representative of other projects**: when portabilizing a project to OxCaml, some code may need to remain in plain OCaml: whether from external libraries, vendored dependencies, or parts of the codebase that are not worth portabilizing. This OCaml code still needs to be interfaced with OxCaml. In `merlin-domains`, vendored code from the OCaml typer that contains mutable values is a concrete instance of this challenge (see how we dealt with it in [Integrating vendored code](#integrating-vendored-code)).
 
 
 # The successes
 
-We learnt OxCaml and portabilized the mock-up and, in the process, gained insights that go beyond the mock-up itself: a better concurrent design for `merlin-domains`, a reusable pattern for vendored code, and concrete suggestions for editor support.
+We portabilized the mock-up and, in the process, gained insights that go beyond the mock-up itself. We detail these results below, and the challenges that led to them in the [following section](#the-challenges).
 
-## Learning OxCaml
+## We learned OxCaml
 
 Starting from no hands-on experience, we learned enough of OxCaml to portabilize a non-trivial concurrent codebase. This included understanding modes, the capsule API, the concurrency libraries, and their interactions. The learning curve was steep (see [Learning OxCaml](#learning-oxcaml)), but the existing documentation and help from the JS team made it possible.
 
 ## Portabilizing the mock-up
 
-We successfully portabilized the mock-up, which reproduces the key concurrency patterns of `merlin-domains`: two-domain architecture, message-passing, shared mutable state, partial results, and cancellation. The mock-up was progressively extended based on our analysis of `merlin-domains` to cover patterns we identified as potential blockers for portabilization. The portabilized version compiles under OxCaml with DRF guarantees enforced at compile time, including for the vendored code, which we interfaced without modifying (see [Integrating vendored code](#integrating-vendored-code)).
+We successfully portabilized the mock-up, which reproduces the key concurrency patterns of `merlin-domains`: two-domain architecture, message-passing, shared mutable state, partial results, and cancellation. The mock-up was progressively extended based on our analysis of `merlin-domains` to cover patterns we identified as potential blockers for portabilization. The portabilized version compiles under OxCaml with data-race freedom (DRF) guarantees enforced at compile time, including for the vendored code, which we interfaced without modifying (see [Integrating vendored code](#integrating-vendored-code)).
 
 ## A better concurrent design for merlin-domains
 
-Working with OxCaml's mode system pushed us to rethink the concurrent design of `merlin-domains`. The original design dedicates a secondary domain to typing, running a persistent loop that receives requests through a blocking message-passing structure and processes them one at a time. Exploring the available concurrency primitives made us realize that a fork-join model would give better control over what is shared between the two domains and what level of synchronization is needed at each step. We have not fully implemented this design yet, but we believe it would be easier to reason about and to portabilize than the original one. This improvement would also benefit the plain OCaml version of `merlin-domains`.
+An unexpected benefit: working with OxCaml's mode system pushed us to rethink the concurrent design of `merlin-domains`. The original design dedicates a secondary domain to typing, running a persistent loop that receives requests through a blocking message-passing structure and processes them one at a time. Exploring the available concurrency primitives made us realize that a fork-join model would give better control over what is shared between the two domains and what level of synchronization is needed at each step. We have not fully implemented this design yet, but we believe it would be easier to reason about and to portabilize than the original one. This improvement would also benefit the plain OCaml version of `merlin-domains`.
 
 ## Concrete suggestions for editor support
 
-The portabilization experience led us to identify specific editor features that would help OxCaml developers (see [Helping the user through editor support](#helping-the-user-through-editor-support)). These suggestions come directly from the pain points we encountered.
+The portabilization experience led us to identify specific editor features that would help OxCaml developers (see [Helping the user through editor support](#helping-the-user-through-editor-support)). These suggestions come directly from the pain points we encountered, that we detail in the following section. 
 
 # The challenges
 
-Below, we describe the main challenges we encountered, both from portabilizing the mock-up and from analyzing `merlin-domains` for potential blockers. We focused on leveraging OxCaml's DRF guarantees for the concurrent parts, and did not explore other features such as the locality axis or unboxed types, which is why challenges specific to these features are not covered here.
+The successes described above came with significant challenges. Below, we describe the main one we encountered, both while portabilizing the mock-up and from analyzing `merlin-domains` for potential blockers. We focused on leveraging OxCaml's DRF guarantees for the concurrent parts, and did not explore other features such as the locality axis or unboxed types, which is why challenges specific to these features are not covered here.
 
-When evaluating the feasibility of the project, we identified the following expected challenges:
+When evaluating the feasibility of the project, we expected three main challenges: learning OxCaml, choosing the right concurrency model, and guaranteeing DRF without changing the vendored OCaml typer code. Along the way, we also encountered challenges we did not anticipate: sharing mutable state safely requires understanding most mode axes, modalities, and kinds (not just portability and contention), and mode errors can interact with type errors in non-obvious ways. 
 
-- learning OxCaml,
-- which concurrency model to use,
-- how to guarantee DRF without changing the vendored OCaml typer code.
-
-We also encountered some non-expected challenges:
-
-- sharing mutable state safely in OxCaml requires understanding most mode axes, modalities, and kinds, not just portability and contention as we initially expected.
-- error messages: understanding the interaction between type errors and mode errors.
+We describe each of these challenges in more detail below, along with the approaches we took to address them.
 
 ## Learning OxCaml
 
@@ -194,10 +191,12 @@ The core logic is the same in both versions (set the message, signal, wait until
 To learn OxCaml, the [oxcaml.org tutorials](https://oxcaml.org/documentation/tutorials/01-intro-to-parallelism-part-1/) and discussions with the JS team (special thanks to Liam and Aspen) were essential. For the capsule API specifically, we relied mostly on these discussions and on trial and error as no dedicated tutorial exists.
 
 ### Take-away
-The learning curve could be made less steep with more guided material for the capsule API and better editor support for modes. We discuss concrete suggestions in the [editor support](#helping-the-user-through-editor-support) and [documentation](#making-the-learning-curve-less-steep) sections below.
+The learning curve could be made less steep with more guided material for the capsule API and better editor support for modes. We discuss concrete suggestions in the [editor support](#helping-the-user-through-editor-support) and [smoothing the learning curve](#making-the-learning-curve-less-steep) sections below.
 
 
 ## Finding the right concurrency primitive
+
+Our second challenge was finding the right concurrency primitive for `merlin-domains`'s two-domain architecture.
 
 ### Context
 `merlin-domains` uses a two-domain architecture with a message-passing coordination mechanism: the main domain handles request dispatching while a dedicated secondary domain performs the bulk of the computation (typing and the rest of the merlin pipeline). The two domains communicate through a shared synchronization structure using a blocking send/acknowledge protocol.
@@ -238,9 +237,9 @@ let main () =
 ```
 
 ### Challenge
-We initially planned to use `Parallel.fork_join2` and rework our design to fit its fork/join model. However, `Parallel` provides *parallelism*, not *concurrency*: it is always a valid schedule to run one task to completion before starting the other. Our message-passing data structure requires *concurrency*: one task blocks on a condition variable until the other signals it. With `Parallel`, this leads to a deadlock.
+We initially planned to use `Parallel.fork_join2` function from the [`Parallel`](https://github.com/janestreet/parallel) library and rework our design to fit its fork/join model. However, this library provides *parallelism*, not *concurrency*: it is always a valid schedule to run one task to completion before starting the other. Our message-passing data structure requires *concurrency*: one task blocks on a condition variable until the other signals it. With `Parallel`, this leads to a deadlock.
 
-Extract of the message-passing data structure written in OCaml:
+Here is an extract of the message-passing data structure written in OCaml:
 ```ocaml
 type 'a t = { mutex : Mutex.t; cond : Condition.t; mutable msg : 'a option }
 
@@ -255,23 +254,25 @@ let send_and_wait t msg =
 ```
 `send_and_wait` blocks until the other task calls `Condition.signal`. If the scheduler runs the first task to completion before starting the second, the signal never arrives.
 
-`Concurrent` (which guarantees that runnable tasks make progress within finite time) would fit our needs, but at the time it did not provide additional value over `Multicore` for our use case.
+
 
 ### Approach
-The best match we found for our use case is the `Multicore` library, which spawns actual domains and thus provides the concurrency guarantee we need: both tasks run independently and can make progress regardless of whether the other is blocked. The resulting code is very similar to the original `Domain.spawn` version in OCaml, except it provides the right modes to ensure DRF.
+The best match we found for our use case is the [`Multicore`](https://github.com/oxcaml/oxcaml/blob/main/otherlibs/systhreads/multicore.mli) library, which spawns actual domains and thus provides the concurrency guarantee we need: both tasks run independently and can make progress regardless of whether the other is blocked. The resulting code is very similar to the original `Domain.spawn` version in OCaml, except it provides the right modes to ensure DRF.
+
+The [`Concurrent`](https://github.com/janestreet/concurrent) library (which guarantees that runnable tasks make progress within finite time) would also fit our needs, but at the time it did not provide additional value over `Multicore` library for our use case.
 
 ### Take-away
 
-- There is very little documentation about which scheduling library to use for what. Only `Parallel` is covered in the oxcaml.org documentation; `Concurrent` and `Multicore` are not mentioned. Guidance on when to use each would help users avoid the kind of deadlock we encountered.
+- There is very little documentation about which scheduling library to use for what. Only [`Parallel`](https://github.com/janestreet/parallel) is covered in the oxcaml.org documentation; [`Concurrent`](https://github.com/janestreet/concurrent) and [`Multicore`](https://github.com/oxcaml/oxcaml/blob/main/otherlibs/systhreads/multicore.mli) are not mentioned. Guidance on when to use each would help users avoid the kind of deadlock we encountered.
 
-- Using a fork-join design would have helped us refine: (1) when concurrency (rather than parallelism) is needed, and (2) what must be shared between the two tasks at each fork.  
+- Using a fork-join design would have helped us refine: (1) when concurrency is needed, and (2) what must be shared between the two tasks at each fork.  We still ended up using `Multicore` instead of a custum fork-join implementation, to stay close to the original design.
 
 ## Dealing with top level mutable state 
 
-`merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can't be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t` (or in an `Atomic.t` if the operations performed on the value are translatable to atomic operations).
+Once we had the right concurrency primitive, the next challenge was dealing with mutable state. `merlin` uses a lot of top-level mutable state, both in its own code and in the vendored OCaml typer. In OxCaml, top-level mutable values can not be shared between domains. For merlin's own code, which we can modify, the fix is straightforward: wrap the mutable state in `Capsule.Data.t` (or in an `Atomic.t` if the operations performed on the value are translatable to atomic operations).
 
 ```ocaml
-(* Before: nonportable, can't be shared *)
+(* Before: nonportable, can not be shared *)
 let res = ref []
 
 (* After: portable, accessible under the mutex *)
@@ -293,7 +294,7 @@ In `merlin-domains`, both domains call into vendored code: the worker domain run
 
 ### Challenge
 
-The vendored code is plain OCaml: its functions are `nonportable` and can't be called from a `portable` context (e.g. inside a `fork_join` or a capsule callback). The most straightforward approach is to wrap them with `Obj.magic_portable`:
+The vendored code is plain OCaml: its functions are `nonportable` and can not be called from a `portable` context (e.g. inside a `fork_join` or a capsule callback). The most straightforward approach is to wrap them with `Obj.magic_portable`:
 
 ```ocaml
 module Vendored : sig
@@ -313,8 +314,7 @@ end = struct
     global_counter := !global_counter + n;
     !global_counter mod 2 = 0
 end
-```
-```ocaml
+
 (* Naive wrapper: makes vendored functions portable, but provides
    no protection against data races. *)
 module Wrapper_naive : sig @@ portable
@@ -388,11 +388,11 @@ We use a single mutex for all vendored state. This does not mean a single big cr
 
 - **Open question**: is wrapping visible state in `Capsule.Data.t` worth the added verbosity? The `Access.t` token already forces the mutex, so the structural protection it adds seems marginal.
 
-- **OxCaml to OCaml side note**: As a side note, we wondered whether it would be possible to write the concurrent parts of a project in OxCaml for the DRF guarantees, then extract plain OCaml from it. This would probably require some form of code extraction, but could be useful for projects that can't fully switch to OxCaml.
+- **OxCaml to OCaml side note**: As a side note, we wondered whether it would be possible to write the concurrent parts of a project in OxCaml for the DRF guarantees, then extract plain OCaml from it. This would probably require some form of code extraction, but could be useful for projects that can not fully switch to OxCaml.
 
 ## Interaction between type errors and mode errors
 
-We document here two non-obvious behaviors with mode errors that we encountered. We propose no solution; these are observations that may be worth investigating. Both come from the fact that mode crossing depends on the type of a value, and the type may not be fully resolved when the mode is checked.
+Finally, we document two non-obvious behaviors with mode errors that we encountered. We propose no solution; these are observations that may be worth investigating. Both come from the fact that mode crossing depends on the type of a value, and the type may not be fully resolved when the mode is checked.
 
 ### Mode errors fixed with a type annotation
 
@@ -400,7 +400,7 @@ We document here two non-obvious behaviors with mode errors that we encountered.
 type msg = Empty | Msg of int option
 
 (* Without annotation: the mode of x is checked at line 6 before
-   the match on line 8 constrains x to [msg]. The compiler doesn't
+   the match on line 8 constrains x to [msg]. The compiler does not
    know x is an immutable variant that crosses contention. *)
 let foo par x =
   let #(v, ()) =
@@ -428,13 +428,13 @@ The following is a simple example where fixing a type error also fixes a mode er
 ```ocaml
 let make () = exclave_ stack_ ("hello", 42)
 
-(* Mode error: p is local, can't be returned. *)
+(* Mode error: p is local, can not be returned. *)
 let f () =
   let p = make () in
   p
 
 (* Type error: f () returns (string * int), not int.
-   But this error is hidden because f doesn't compile. *)
+   But this error is hidden because f does not compile. *)
 let g () =
   let x : int = f () in
   x + 1
@@ -447,7 +447,7 @@ The compiler reports the mode error on `p` in `f` and never shows the type error
 
 # Suggestions for improving the developer experience
 
-Based on our experience, we suggest two directions for making OxCaml more accessible:
+The challenges described above point to areas where the developer experience could be improved. We suggest two directions:
 
 - **Editor support**: features to help developers inspect modes, navigate mode-expanded APIs, and understand mode inference through their own code.
 - **Guided learning**: a pedagogical tool to help developers build intuition about modes incrementally, through exercises and repetition.
@@ -467,7 +467,7 @@ These are suggestions: we have not studied their feasibility in depth. The first
 
 ### Inspecting modes
 
-From what we know, this is a feature that may have already been implemented internally at Jane Street but has not been released yet. In case it hasn't, here is a short description of what it could look like and why it would be useful.
+From what we know, this is a feature that may have already been implemented internally at Jane Street but has not been released yet. In case it has not, here is a short description of what it could look like and why it would be useful.
 
 Like type inspection, mode inspection is a straightforward but essential feature. For example:
 
@@ -514,8 +514,8 @@ end = struct
   let foo_p () = Some 12
 end
 
-let foo par = Multicore.spawn T.__ () |> ignore
-(*                              ^^
+let foo par = Multicore.spawn T._ () |> ignore
+(*                              ^
    Completion shows both [foo_p] and [foo_np], but only
    [foo_p] is compatible with [spawn]’s portable requirement. *)
 ```
@@ -526,8 +526,8 @@ open! Core
 
 let foo () =
   let l = stack_ [ 1; 2; 3 ] in
-  List.__ l ~f:(fun _ -> ()) [@nontail]
-  (*   ^^
+  List._ l ~f:(fun _ -> ()) [@nontail]
+  (*   ^
      Completion shows [iter], [map], [filter], ...
      but with a local list, the global variants won't work. *)
 ```
@@ -536,7 +536,7 @@ Mode-aware completion would work the same way type-aware completion already does
 
 ### Using the editor to improve error message readability
 
-Mode error messages often reference several locations in the code (the error site, the capture site, the constraint source, etc.). Today, the editor only underlines the error site. A simple improvement would be to expose all referenced locations through LSP diagnostics and highlight them in the editor. For example, the following code:
+Mode error messages often reference several locations in the code (the error site, the capture site, the constraint source, etc.). Today, the editor only underlines the error site. A simple improvement would be to surface all referenced locations in the editor, making them visible and clickable. For example, the following code:
 
 ```ocaml
 let state = ref 0
@@ -561,7 +561,7 @@ The value "h" is "nonportable"
       which is expected to be "shareable".
 ```
 
-The error message already contains all four locations (`state`, `g`, `h`, the closure). Highlighting them in the editor would make the chain immediately visible without having to read the full text.
+The error message already contains all four locations (`state`, `g`, `h`, the closure). Surfacing them in the editor would make the chain immediately visible without having to read the full error message.
 
 This feature would also be useful for plain OCaml type errors, which similarly reference multiple locations. It could also be a good first step towards the more ambitious "understanding mode inference" feature described below.
 
@@ -583,8 +583,7 @@ let make_processor () =
     List.length !cache
   in
   f
-```
-```ocaml
+  
 let example () =
   let foo = make_processor () in
   (* ... 50 lines of code ... *)
@@ -608,7 +607,7 @@ foo : int list -> int
     because: used inside Mutex.with_access ~f (which requires @ portable)
 ```
 
-This is similar to what the compiler already computes for some errors, but exposed on demand for any value, including in code that compiles successfully. It could be displayed in a side panel or using code-lenses.
+This is similar to what the compiler already computes for some errors, but more complete and exposed on demand for any value, including in code that compiles successfully. It could be displayed in a side panel or using code-lenses.
 
 Here is another example, on the linearity axis: 
 ```ocaml
@@ -665,20 +664,20 @@ let ex3 () =
 let ex4 () =
   let a @ local = Some "foo" in
   match a with Some _ -> true | None -> false
-(* Compiles. [a] doesn't escape. *)
+(* Compiles. [a] does not escape. *)
 
 (* 5. Locality is deep: [x] extracted from a local [a] is local too. *)
 let ex5 () =
   let a @ local = Some "foo" in
   match a with Some x -> x | None -> ""
-(* Error: x is local (from a), can't escape. *)
+(* Error: x is local (from a), can not escape. *)
 
 (* 6. Same pattern, but [x : int]. Integers are immediate and cross
       locality. *)
 let ex6 () =
   let a @ local = Some 42 in
   match a with Some x -> x | None -> 0
-(* Compiles! [int] is never heap-allocated, so locality doesn't
+(* Compiles! [int] is never heap-allocated, so locality does not
    apply. *)
 ```
 
@@ -698,7 +697,7 @@ In a more interactive format, exercises could show code with blanks and let the 
 | 1 | `@ global` | `@ local` | `@ local` |
 | 2 | `a` | `a` | `(a : _ @ global)` |
 | | | | |
-| **Result** | Compiles: `a` is global, can escape | Error: local value escapes its scope | Error: local value can't be coerced to global |
+| **Result** | Compiles: `a` is global, can escape | Error: local value escapes its scope | Error: local value can not be coerced to global |
 
 The value of such a tool is both in the ability to quickly and easily explore many combinations and in repetition: by hitting the same errors in different contexts, the learner develops reflexes on which bugs (and thus fixes) match which error message. E.g., seeing "local but expected global" and knowing immediately to look for an escaping value or a missing [@nontail] annotation.
 
