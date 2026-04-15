@@ -1,6 +1,6 @@
   $ merlin-mockup > /dev/null 2>&1 &
   $ PID=$!
-  $ sleep 0.1
+  $ sleep 0.2
 
   $ printf "./defs/math\npart 4" | nc localhost 8453
   Value of "alpha" is 4.
@@ -8,8 +8,9 @@
   Value of "gamma" is 7.
   Value of "delta" is 21.
   Value of "epsilon" is 6.
+  Value of "zeta" is 18.
+  Value of "eta" is 12.
   
-
   $ printf "./defs/math\npart 15" | nc localhost 8453
   Value of "alpha" is 4.
   Value of "beta" is 3.
@@ -27,6 +28,6 @@
   Value of "xi" is -756.
   Value of "omicron" is 96.
   Value of "pi" is 115.
+  Value of "rho" is 28.
   
-
   $ printf '.\nclose' | nc localhost 8453
