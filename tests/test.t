@@ -30,4 +30,3 @@
   Value of "final_value" is 333.
   
   $ printf '.\nclose' | nc localhost 8453
-
