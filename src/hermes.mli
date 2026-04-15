@@ -22,6 +22,12 @@ val map : 'a t -> f:('a -> 'b) @ portable -> 'b t
 
 val apply :
   ('b : immutable_data). 'a t -> f:(Msg.t -> 'a -> 'b) @ portable -> 'b
+
+val apply_with_access :
+  ('b : immutable_data).
+  'a t ->
+  f:(k Capsule.Access.t -> Msg.t -> 'a -> 'b) @ portable ->
+  'b
 (** [apply t ~f] applies [f] to the message and data inside [t] under the
     protection of its mutex and returns the result. *)
 
@@ -50,3 +56,8 @@ val merge :
 
 val protect_capsule :
   ('a, k) Capsule.Data.t -> f:('a -> 'b) @ portable -> ('b : immutable_data)
+
+val protect_capsule_with_access :
+  ('a, k) Capsule.Data.t ->
+  f:(k Capsule.Access.t -> 'a -> 'b) @ portable ->
+  ('b : immutable_data)
